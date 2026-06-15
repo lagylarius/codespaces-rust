@@ -126,7 +126,7 @@ impl State {
     }
 
 
-    pub async fn initialize_environment() -> () {
+    pub async fn initialize_environment() -> Self {
         let event_loop = EventLoop::new().unwrap();
 
         let window = WindowBuilder::new()
@@ -153,13 +153,20 @@ impl State {
                 .unwrap();
         }
 
-        // const FULLSCREEN: bool = false;
+        const FULLSCREEN: bool = false;
 
-        // if FULLSCREEN {
-        //     let monitor = window.current_monitor().unwrap();
-        //     let video_mode = monitor.video_modes().next().unwrap();
-        //     window.set_fullscreen(Some(winit::window::Fullscreen::Exclusive(video_mode)));
-        // }
+        if FULLSCREEN {
+            #[cfg(not(target_arch = "wasm32"))] {
+                let monitor = window.current_monitor().unwrap();
+                let video_mode = monitor.video_modes().next().unwrap();
+                window.set_fullscreen(Some(winit::window::Fullscreen::Exclusive(video_mode)));
+            }
+            #[cfg(target_arch = "wasm32")] {
+                use winit::platform::web::WindowExtWebSys;
+                let canvas = window.canvas().unwrap();
+                canvas.request_fullscreen().unwrap();
+            }
+        }
 
 
         let window = std::sync::Arc::new(window);
@@ -175,64 +182,65 @@ impl State {
             .unwrap();
 
         // // 3. Adapter
-        // let adapter = instance
-        //     .request_adapter(&wgpu::RequestAdapterOptions {
-        //         power_preference: wgpu::PowerPreference::HighPerformance,
-        //         compatible_surface: Some(&surface),
-        //         force_fallback_adapter: false,
-        //     })
-        //     .await
-        //     .unwrap();
+        let adapter = instance
+            .request_adapter(&wgpu::RequestAdapterOptions {
+                power_preference: wgpu::PowerPreference::HighPerformance,
+                compatible_surface: Some(&surface),
+                force_fallback_adapter: false,
+            })
+            .await
+            .unwrap();
 
-        // // 4. Device + Queue (your JS "device")
-        // let (device, queue) = adapter
-        //     .request_device(&wgpu::DeviceDescriptor {
-        //         label: Some("Device"),
-        //         required_features: wgpu::Features::empty(),
-        //         required_limits: wgpu::Limits::default(),
-        //         ..Default::default()
-        //     })
-        //     .await
-        //     .unwrap();
+        // // 4. Device + Queue
+        let (device, queue) = adapter
+            .request_device(&wgpu::DeviceDescriptor {
+                label: Some("Device"),
+                required_features: wgpu::Features::empty(),
+                required_limits: wgpu::Limits::default(),
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+
 
         // // 5. Surface format (your CANVAS_FORMAT)
-        // let surface_caps = surface.get_capabilities(&adapter);
-        // let format = surface_caps
-        //     .formats
-        //     .iter()
-        //     .copied()
-        //     .find(|f| !f.is_srgb())
-        //     .unwrap_or(surface_caps.formats[0]);
+        let surface_caps = surface.get_capabilities(&adapter);
+        let format = surface_caps
+            .formats
+            .iter()
+            .copied()
+            .find(|f| !f.is_srgb())
+            .unwrap_or(surface_caps.formats[0]);
 
         // // 6. Surface config (canvas_context.configure equivalent)
-        // let config = wgpu::SurfaceConfiguration {
-        //     usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-        //     format,
-        //     width: size.width,
-        //     height: size.height,
-        //     present_mode: wgpu::PresentMode::Fifo, //Vsync
-        //     // present_mode: wgpu::PresentMode::Immediate,
-        //     alpha_mode: surface_caps.alpha_modes[0],
-        //     view_formats: vec![],
-        //     desired_maximum_frame_latency: 2,
-        // };
+        let config = wgpu::SurfaceConfiguration {
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            format,
+            width: size.width,
+            height: size.height,
+            present_mode: wgpu::PresentMode::Fifo, //Vsync
+            // present_mode: wgpu::PresentMode::Immediate,
+            alpha_mode: surface_caps.alpha_modes[0],
+            view_formats: vec![],
+            desired_maximum_frame_latency: 2,
+        };
 
-        // surface.configure(&device, &config);
+        surface.configure(&device, &config);
 
         
-        // println!("Adapter: {:?}", adapter.get_info().backend);
+        log_print!("Adapter: {:?}", adapter.get_info().backend);
 
-        // Self {
-        //     window: window,
-        //     surface,
-        //     device: Arc::new(device),
-        //     queue: Arc::new(queue),
-        //     config,
-        //     size,
-        //     surface_texture: None,
-        //     surface_format: format,
+        Self {
+            window: window,
+            surface,
+            device: Arc::new(device),
+            queue: Arc::new(queue),
+            config,
+            size,
+            surface_texture: None,
+            surface_format: format,
 
-        //     event_loop: Some(event_loop)
-        // }
+            event_loop: Some(event_loop)
+        }
     }
 }
