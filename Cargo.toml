@@ -1,10 +1,37 @@
 [package]
-name = "codespaces-rust"
+name = "my_wasm"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[lib]
+crate-type = ["cdylib"]
+
 
 [dependencies]
-actix-files = "0.6.2"
-actix-web = "4"
+console_error_panic_hook = "0.1"
+wasm-bindgen = "0.2.125"
+#web-sys = "0.3.102"
+winit = "0.29"
+web-sys = { version = "0.3", features = [
+    "Window",
+    "Document",
+    "HtmlElement",
+    "Node",
+    "Element"
+]}
+console_log = "1.0.0"
+log = "0.4.32"
+
+
+[workspace]
+members = [
+    ".",
+    "make"
+]
+
+#wasm-pack build --target web
+
+
+#cargo build --target wasm32-unknown-unknown --release
+#wasm-bindgen --target web --out-dir web/pkg target/wasm32-unknown-unknown/release/my_wasm.wasm
+#python3 -m http.server 9999 --directory web
