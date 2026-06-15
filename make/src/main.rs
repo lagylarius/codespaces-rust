@@ -4,17 +4,6 @@ use std::{thread, time::Duration};
 
 static SERVER: Mutex<Option<Child>> = Mutex::new(None);
 
-
-// fn copy_shaders() {
-//     let dest = std::path::Path::new("web/shaders");
-//     if dest.exists() {
-//         std::fs::remove_dir_all(dest).expect("failed to delete web/shaders");
-//     }
-    
-//     copy_dir_all("tcore/shaders", dest).expect("failed to copy shaders");
-//     println!("Copied shaders...");
-// }
-
 fn copy_folder(src: &str, dst: &str) {
     let dest = std::path::Path::new(dst);
     if dest.exists() {
@@ -50,21 +39,20 @@ fn start_server() {
 }
 
 fn build() {
+    let profile = if cfg!(debug_assertions) { "debug" } else { "release" };
+    let mut args = vec!["build", "--target", "wasm32-unknown-unknown"];
+    if !cfg!(debug_assertions) { args.push("--release"); }
     Command::new("cargo")
-        .args(["build", "--target", "wasm32-unknown-unknown", "--release"])
+        .args(&args)
         .status()
         .unwrap();
 
     println!("Built wasm..");
 
+    let wasm_path = format!("target/wasm32-unknown-unknown/{}/tcore.wasm", profile);
+
     Command::new("wasm-bindgen")
-        .args([
-            "--target",
-            "web",
-            "--out-dir",
-            "web/pkg",
-            "target/wasm32-unknown-unknown/release/tcore.wasm",
-        ])
+        .args(["--target", "web", "--out-dir", "web/pkg", &wasm_path])
         .status()
         .unwrap();
 

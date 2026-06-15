@@ -37,7 +37,9 @@ impl State {
         self.size = size;
         self.config.width = size.width;
         self.config.height = size.height;
-        self.surface.configure(&self.device, &self.config);
+        #[cfg(not(target_arch = "wasm32"))] { // on wasm this is handled by the browser and causes a feedback loop
+            self.surface.configure(&self.device, &self.config)
+        };
     }
 
     pub fn run<F: FnMut(LoopEvent)>(eloop: EventLoop<()>,mut update: F) {
@@ -112,6 +114,9 @@ impl State {
                 None => self.surface.configure(&self.device, &self.config),
             }
         };
+        let size = surface_texture.texture.size();
+        self.config.width = size.width;
+        self.config.height = size.height;
         let view = surface_texture.texture.create_view(&wgpu::TextureViewDescriptor::default());
         self.surface_texture = Some(surface_texture);
 
@@ -129,29 +134,59 @@ impl State {
     pub async fn initialize_environment() -> Self {
         let event_loop = EventLoop::new().unwrap();
 
-        let window = WindowBuilder::new()
-            .with_title("wgpu app")
-            .with_inner_size(winit::dpi::LogicalSize::new(1280, 720))
-            .build(&event_loop)
-            .unwrap();
+        // let window = WindowBuilder::new()
+        //     .with_title("wgpu app")
+        //     // .with_inner_size(winit::dpi::LogicalSize::new(1280, 720))
+        //     .build(&event_loop)
+        //     .unwrap();
 
         
-        #[cfg(target_arch = "wasm32")] {
-            use winit::platform::web::WindowExtWebSys;
+        // #[cfg(target_arch = "wasm32")] {
+        //     use winit::platform::web::WindowExtWebSys;
 
-            let canvas = window.canvas().unwrap();
+        //     let canvas = window.canvas().unwrap();
+        //     canvas.set_width(600);
+        //     canvas.set_height(400);
 
-            let node = canvas.into(); 
+        //     canvas.set_id("wgpu-canvas");
+            
+        //     let node = canvas.into(); 
 
-            web_sys::window()
-                .unwrap()
-                .document()
-                .unwrap()
-                .body()
-                .unwrap()
-                .append_child(&node)
-                .unwrap();
-        }
+        //     web_sys::window()
+        //         .unwrap()
+        //         .document()
+        //         .unwrap()
+        //         .body()
+        //         .unwrap()
+        //         .append_child(&node)
+        //         .unwrap();
+        // }
+
+        let window = {#[cfg(target_arch = "wasm32")] {
+                use wasm_bindgen::JsCast;
+                use winit::platform::web::WindowBuilderExtWebSys;
+                
+                let canvas = web_sys::window()
+                    .unwrap()
+                    .document()
+                    .unwrap()
+                    .get_element_by_id("canvas")
+                    .unwrap()
+                    .dyn_into::<web_sys::HtmlCanvasElement>()
+                    .unwrap();
+                
+                WindowBuilder::new()
+                    .with_canvas(Some(canvas))
+                    .build(&event_loop)
+                    .unwrap()
+            }
+            #[cfg(not(target_arch = "wasm32"))] {
+                WindowBuilder::new()
+                    .with_title("wgpu app")
+                    .build(&event_loop)
+                    .unwrap()
+            }
+        };
 
         const FULLSCREEN: bool = false;
 
@@ -171,6 +206,10 @@ impl State {
 
         let window = std::sync::Arc::new(window);
 
+        // let size = window.inner_size();
+        #[cfg(target_arch = "wasm32")]
+        let size = winit::dpi::PhysicalSize::new(600, 400);
+        #[cfg(not(target_arch = "wasm32"))]
         let size = window.inner_size();
 
         // // 1. Instance
@@ -214,7 +253,7 @@ impl State {
 
         // // 6. Surface config (canvas_context.configure equivalent)
         let config = wgpu::SurfaceConfiguration {
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
             format,
             width: size.width,
             height: size.height,
@@ -227,8 +266,12 @@ impl State {
 
         surface.configure(&device, &config);
 
+
+        log_print!("surface format: {:?}", config.format);
+        log_print!("surface size: {}x{}", config.width, config.height);
+
         
-        log_print!("Adapter: {:?}", adapter.get_info().backend);
+        log_print!("Adapter: {:?}", adapter.get_info());
 
         Self {
             window: window,

@@ -74,6 +74,13 @@ struct CardArray {
     cards: array<Card>
 }
 
+struct ReadOnlyCardArray {
+    total: u32,
+    total_workgroups: u32,
+    hovering: u32,
+    hovering_max_z: u32,
+    cards: array<Card>
+}
 
 
 struct Tableau {

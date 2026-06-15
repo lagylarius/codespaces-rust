@@ -17,9 +17,10 @@ macro_rules! log_print {
 mod state;
 mod passes;
 mod utils;
+mod game;
 
 
-use crate::{state::State, utils::load_shader_modules};
+use crate::{game::CardArray, passes::{Depth, Dispatch, NoDepth, SelfDispatch}, state::{LoopEvent, State}, utils::load_shader_modules};
 
 #[cfg(target_arch = "wasm32")]
 use {
@@ -42,6 +43,12 @@ use winit::{
     event_loop::EventLoop,
     window::WindowBuilder,
 };
+
+
+#[cfg(target_arch = "wasm32")]
+use web_time::Instant;
+#[cfg(not(target_arch = "wasm32"))]
+use std::time::Instant;
 
 
 pub async fn run() {
@@ -107,5 +114,173 @@ pub async fn run() {
 
     let shaders = load_shader_modules(&state.device, &shader_files).await.unwrap();
 
+
+
+    //----------------Passes----------------
+    let render_background = passes::RenderPass::<Dispatch,NoDepth>::new(state.device.clone(), state.queue.clone(),
+    &[
+        wgpu::BindGroupLayoutEntry {
+            binding: 0,
+            visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+            ty: wgpu::BindingType::Buffer {
+                ty: wgpu::BufferBindingType::Uniform,
+                has_dynamic_offset: false,
+                min_binding_size: None,
+            },
+            count: None,
+        }
+    ],  shaders.get("bg_vertex").unwrap(),
+        shaders.get("bg_fragment").unwrap(),
+            state.surface_format);
+
+    let render_cards = passes::RenderPassTexture::<SelfDispatch,Depth>::new(
+        state.device.clone(),
+        state.queue.clone(),
+        &[
+            wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::FRAGMENT | wgpu::ShaderStages::VERTEX,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Storage { read_only: true },
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 1,
+                visibility: wgpu::ShaderStages::FRAGMENT | wgpu::ShaderStages::VERTEX,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 2,
+                visibility: wgpu::ShaderStages::FRAGMENT | wgpu::ShaderStages::VERTEX,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
+        ],
+        shaders.get("card_vertex").unwrap(),
+        shaders.get("card_fragment").unwrap(),
+        state.surface_format,
+        sprite_sheet,  // your wgpu::Texture
+    );
+
+    let card_layout_logic = passes::ComputePassCommon::<Dispatch>::new(state.device.clone(),state.queue.clone(),
+        &[
+            wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::COMPUTE,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Storage { read_only: false },
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 1,
+                visibility: wgpu::ShaderStages::COMPUTE,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
+        ]
+        ,
+        shaders.get("card_layout_logic").unwrap());
+
+
+    //Game loop
+    let g = CardArray::new();
+
+
+    let mut last_time = Instant::now();
+    let mut frame_count = 0u32;
+
+    State::run( 
+        state.event_loop.take().unwrap(),
+        move |event| {
+            match event {
+                LoopEvent::OnResizing(size) => {
+                    if size.width > 0 && size.height > 0 {
+                        state.resize(size);
+                        state.queue.write_buffer(
+                            &render_uniform_buffer,
+                            0,
+                            bytemuck::cast_slice(&[size.width as f32, size.height as f32]),
+                        );
+                    }
+                },
+                LoopEvent::Render => { 
+                    g.flush_to_buffer(&state.queue, &card_data_buffer);
+
+                    let canvas_texture = state.start_draw();
+                    let depth_texture = state.depth_view();
+                    let depth = Depth {depth_view: &depth_texture};
+
+                    card_layout_logic.do_pass(&[&card_data_buffer,&input_uniform_buffer]);
+                    render_background.do_pass(&canvas_texture, &[&render_uniform_buffer],NoDepth);
+                    render_cards.do_pass(&canvas_texture, &[&card_data_buffer, &render_uniform_buffer, &input_uniform_buffer],depth);
+
+
+                    state.end_draw();
+
+                    frame_count += 1;
+                    let elapsed = last_time.elapsed();
+                    if elapsed.as_secs() >= 1 {
+                        log_print!("FPS: {}", frame_count);
+                        frame_count = 0;
+                        last_time = Instant::now();
+                    }
+                },
+                LoopEvent::OnMouseMove(x, y) => {
+                    mouse_x = x;
+                    mouse_y = y;
+                    state.queue.write_buffer(
+                        &input_uniform_buffer,
+                        0,
+                        bytemuck::cast_slice(&[x as f32, y as f32]),
+                    );
+                },
+            }
+
+
+
+            // g.flush_to_buffer(&state.queue, &card_data_buffer);
+
+            // let canvas_texture = state.start_draw();
+            // let depth_texture = state.depth_view();
+            // let depth = Depth {depth_view: &depth_texture};
+
+            // card_layout_logic.do_pass(&[&card_data_buffer,&input_uniform_buffer]);
+            
+            
+
+            // render_background.do_pass(&canvas_texture, &[&render_uniform_buffer],NoDepth);
+            // render_cards.do_pass(&canvas_texture, &[&card_data_buffer, &render_uniform_buffer, &input_uniform_buffer],depth);
+
+            // state.end_draw();
+
+            // frame_count += 1;
+            // let elapsed = last_time.elapsed();
+            // if elapsed.as_secs() >= 1 {
+            //     log_print!("FPS: {}", frame_count);
+            //     frame_count = 0;
+            //     last_time = Instant::now();
+            // }
+
+        },
+    );
 
 }

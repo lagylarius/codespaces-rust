@@ -113,6 +113,12 @@ fn resolve_relative_path(base_path: &str, relative_path: &str) -> String {
     combined.to_string_lossy().to_string()
 }
 
+const SHADER_WEB_CACHING : bool = false;
+
+#[cfg(target_arch = "wasm32")]
+use {
+    js_sys,
+};
 async fn load_shader_source(
     url: &str,
     seen: &mut std::collections::HashSet<String>,
@@ -121,8 +127,16 @@ async fn load_shader_source(
         return Ok(String::new());
     }
     seen.insert(url.to_string());
-    
-    let bytes = crate::utils::load_bytes(url).await;
+
+
+    let url = {
+        #[cfg(all(target_arch = "wasm32", debug_assertions))]
+        { format!("{}?t={}", url, js_sys::Date::now() as u64) } //DISABLE CACHING
+        #[cfg(any(not(target_arch = "wasm32"), not(debug_assertions)))]
+        { url }
+    };
+
+    let bytes = crate::utils::load_bytes(&url).await;
     let source = String::from_utf8(bytes)?;
     
     let include_regex = regex::Regex::new(r#"^\s*#include\s+"(.+?)"\s*$"#).unwrap();
@@ -130,7 +144,7 @@ async fn load_shader_source(
     for line in source.lines() {
         if let Some(cap) = include_regex.captures(line) {
             let include_path = &cap[1];
-            let resolved = resolve_relative_path(url, include_path);
+            let resolved = resolve_relative_path(&url, include_path);
             let included = Box::pin(load_shader_source(&resolved, seen)).await?;
             result.push_str(&included);
         } else {

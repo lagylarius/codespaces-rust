@@ -16,7 +16,7 @@ fn to_ndc(pixel: vec2<f32>) -> vec2<f32> {
     return vec2<f32>(v.x,-v.y);
 }
 
-@group(0) @binding(0) var<storage,read> card_data: CardArray;
+@group(0) @binding(0) var<storage,read> card_data: ReadOnlyCardArray;
 @group(0) @binding(1) var<uniform> render_u: RenderUniforms;
 @group(0) @binding(2) var<uniform> input_u: InputUniforms;
 
@@ -153,7 +153,7 @@ fn vs_main(
     var origin = aabb.xy;
     var size = aabb.zw;
 
-    var hovering = instanceIndex == (atomicLoad(&card_data.hovering_max_z) - 1u);
+    var hovering = instanceIndex == (card_data.hovering_max_z - 1u);
 
 
     if (hovering) {
