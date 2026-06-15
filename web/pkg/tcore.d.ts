@@ -1,27 +1,23 @@
 /* tslint:disable */
 /* eslint-disable */
 
-export function greet(): string;
-
 export function start(): void;
 
 export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
 
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
-    readonly greet: () => [number, number];
     readonly start: () => void;
-    readonly wasm_bindgen__convert__closures_____invoke__h08c19d7be85eb593: (a: number, b: number, c: any) => [number, number];
-    readonly wasm_bindgen__convert__closures_____invoke__h9133db0a00051f31: (a: number, b: number, c: any, d: any) => void;
-    readonly wasm_bindgen__convert__closures_____invoke__h098dcc716bde625b: (a: number, b: number, c: any) => void;
-    readonly wasm_bindgen__convert__closures_____invoke__h543b95afd8e83798: (a: number, b: number, c: any) => void;
-    readonly wasm_bindgen__convert__closures_____invoke__h098dcc716bde625b_4: (a: number, b: number, c: any) => void;
-    readonly wasm_bindgen__convert__closures_____invoke__h543b95afd8e83798_5: (a: number, b: number, c: any) => void;
-    readonly wasm_bindgen__convert__closures_____invoke__h098dcc716bde625b_6: (a: number, b: number, c: any) => void;
-    readonly wasm_bindgen__convert__closures_____invoke__h098dcc716bde625b_7: (a: number, b: number, c: any) => void;
-    readonly wasm_bindgen__convert__closures_____invoke__h098dcc716bde625b_8: (a: number, b: number, c: any) => void;
-    readonly wasm_bindgen__convert__closures_____invoke__h098dcc716bde625b_9: (a: number, b: number, c: any) => void;
-    readonly wasm_bindgen__convert__closures_____invoke__h7c8781d0f8b86cff: (a: number, b: number) => void;
+    readonly wasm_bindgen__convert__closures_____invoke__hba7d50f6a258c0b0: (a: number, b: number, c: any) => [number, number];
+    readonly wasm_bindgen__convert__closures_____invoke__h07db9e0307b8b1c6: (a: number, b: number, c: any, d: any) => void;
+    readonly wasm_bindgen__convert__closures_____invoke__h00d9dd41cac8de9a: (a: number, b: number, c: any) => void;
+    readonly wasm_bindgen__convert__closures_____invoke__heeac12c13e514d0a: (a: number, b: number, c: any) => void;
+    readonly wasm_bindgen__convert__closures_____invoke__h00d9dd41cac8de9a_4: (a: number, b: number, c: any) => void;
+    readonly wasm_bindgen__convert__closures_____invoke__heeac12c13e514d0a_5: (a: number, b: number, c: any) => void;
+    readonly wasm_bindgen__convert__closures_____invoke__h00d9dd41cac8de9a_6: (a: number, b: number, c: any) => void;
+    readonly wasm_bindgen__convert__closures_____invoke__h00d9dd41cac8de9a_7: (a: number, b: number, c: any) => void;
+    readonly wasm_bindgen__convert__closures_____invoke__h00d9dd41cac8de9a_8: (a: number, b: number, c: any) => void;
+    readonly wasm_bindgen__convert__closures_____invoke__hd67c43634199cb40: (a: number, b: number) => void;
     readonly __wbindgen_malloc: (a: number, b: number) => number;
     readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
     readonly __externref_table_alloc: () => number;

@@ -4,15 +4,7 @@ use std::{thread, time::Duration};
 
 static SERVER: Mutex<Option<Child>> = Mutex::new(None);
 
-fn stop_server() {
-    let mut server = SERVER.lock().unwrap();
 
-    if let Some(mut child) = server.take() {
-        let _ = child.kill();
-        let _ = child.wait();
-        println!("🛑 stopped old server");
-    }
-}
 fn start_server() {
     let child = Command::new("python3")
         .args(["-m", "http.server", "9999", "--directory", "web"])
@@ -36,7 +28,7 @@ fn build() {
             "web",
             "--out-dir",
             "web/pkg",
-            "target/wasm32-unknown-unknown/release/my_wasm.wasm",
+            "target/wasm32-unknown-unknown/release/tcore.wasm",
         ])
         .status()
         .unwrap();
@@ -45,10 +37,9 @@ fn build() {
 fn main() {
     build();
 
-    stop_server();
     start_server();
 
-    println!("✅ dev environment ready");
+    println!("=====dev environment ready=====");
 
     // keep process alive so server stays running
     loop {
