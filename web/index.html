@@ -14,7 +14,16 @@
             width: 100%;
             height: 100%;
         }
-        canvas { width: 600px !important; height: 400px !important; }
+      canvas {
+        position: absolute;
+        image-rendering: pixelated;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        display: block;
+        z-index: 0;
+      }
     </style>
 </head>
 
@@ -24,6 +33,16 @@
     <canvas id="canvas"></canvas>
 
     <script type="module">
+        const canvas = document.getElementById('canvas');
+        canvas.width = canvas.clientWidth;
+        canvas.height = canvas.clientHeight;
+
+        const observer = new ResizeObserver(() => {
+            canvas.width = canvas.clientWidth;
+            canvas.height = canvas.clientHeight;
+        });
+        observer.observe(canvas);
+
         import init from "./pkg/tcore.js";
 
         async function run() {

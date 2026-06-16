@@ -223,11 +223,12 @@ pub async fn run() {
                     }
                 },
                 LoopEvent::Render => { 
+
                     g.flush_to_buffer(&state.queue, &card_data_buffer);
 
                     let canvas_texture = state.start_draw();
                     let depth_texture = state.depth_view();
-                    let depth = Depth {depth_view: &depth_texture};
+                    let depth = Depth {depth_view: depth_texture};
 
                     card_layout_logic.do_pass(&[&card_data_buffer,&input_uniform_buffer]);
                     render_background.do_pass(&canvas_texture, &[&render_uniform_buffer],NoDepth);
@@ -238,7 +239,7 @@ pub async fn run() {
 
                     frame_count += 1;
                     let elapsed = last_time.elapsed();
-                    if elapsed.as_secs() >= 1 {
+                    if elapsed.as_secs_f32() >= 1.0 {
                         log_print!("FPS: {}", frame_count);
                         frame_count = 0;
                         last_time = Instant::now();
@@ -254,32 +255,6 @@ pub async fn run() {
                     );
                 },
             }
-
-
-
-            // g.flush_to_buffer(&state.queue, &card_data_buffer);
-
-            // let canvas_texture = state.start_draw();
-            // let depth_texture = state.depth_view();
-            // let depth = Depth {depth_view: &depth_texture};
-
-            // card_layout_logic.do_pass(&[&card_data_buffer,&input_uniform_buffer]);
-            
-            
-
-            // render_background.do_pass(&canvas_texture, &[&render_uniform_buffer],NoDepth);
-            // render_cards.do_pass(&canvas_texture, &[&card_data_buffer, &render_uniform_buffer, &input_uniform_buffer],depth);
-
-            // state.end_draw();
-
-            // frame_count += 1;
-            // let elapsed = last_time.elapsed();
-            // if elapsed.as_secs() >= 1 {
-            //     log_print!("FPS: {}", frame_count);
-            //     frame_count = 0;
-            //     last_time = Instant::now();
-            // }
-
         },
     );
 

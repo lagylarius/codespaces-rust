@@ -39,9 +39,15 @@ impl State {
         self.size = size;
         self.config.width = size.width;
         self.config.height = size.height;
-        #[cfg(not(target_arch = "wasm32"))] { // on wasm this is handled by the browser and causes a feedback loop
+
+        let (depth_texture,depth_texture_view) = Self::create_depth_texture(&self.device, &self.config);
+
+        self.depth_texture = depth_texture;
+        self.depth_texture_view = depth_texture_view;
+
+        // #[cfg(not(target_arch = "wasm32"))] { // on wasm this is handled by the browser and causes a feedback loop
             self.surface.configure(&self.device, &self.config)
-        };
+        // };
     }
 
     pub fn run<F: FnMut(LoopEvent)>(eloop: EventLoop<()>,mut update: F) {
@@ -51,15 +57,20 @@ impl State {
                 Event::WindowEvent { event, .. } => {
                     match event {
                         WindowEvent::CloseRequested => control_flow.exit(),
-                        WindowEvent::Resized(size) => update(LoopEvent::OnResizing(size)),
+                        WindowEvent::Resized(size) => {
+                            update(LoopEvent::OnResizing(size))
+
+                        },
                         WindowEvent::CursorMoved { position, .. } => update(LoopEvent::OnMouseMove(position.x, position.y)),
+                        WindowEvent::RedrawRequested => {
+                            update(LoopEvent::Render);
+                        }
                         _ => {}
-                    }
-                    
+                    }            
                 }
-                Event::AboutToWait => {
-                    update(LoopEvent::Render);
-                }
+                // Event::AboutToWait => {
+                //     update(LoopEvent::Render);
+                // }
                 _ => {}
             }
         });
@@ -75,7 +86,8 @@ impl State {
                 panic!("Surface timeout")
             }
             wgpu::CurrentSurfaceTexture::Outdated => {
-                return None
+                // panic!("Surface outdated")
+                return None;
             }
             wgpu::CurrentSurfaceTexture::Lost => {
                 panic!("Surface lost")
@@ -109,36 +121,41 @@ impl State {
         return (depth_texture,depth_view);
     }
 
-    pub fn depth_view(&mut self) -> wgpu::TextureView {
-        let depth_texture = self.device.clone().create_texture(&wgpu::TextureDescriptor {
-            label: Some("depth texture"),
-            size: wgpu::Extent3d {
-                width: self.config.width,
-                height: self.config.height,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Depth24Plus,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-            view_formats: &[],
-        });
-
-        let depth_view = depth_texture.create_view(&Default::default());
-        return depth_view;
+    pub fn depth_view(&mut self) -> &wgpu::TextureView {
+        return &self.depth_texture_view;
     }
 
     pub fn start_draw(&mut self) -> wgpu::TextureView {
+        // #[cfg(target_arch = "wasm32")] {
+        //     use wasm_bindgen::JsCast;
+        //     let canvas = web_sys::window()
+        //         .unwrap()
+        //         .document()
+        //         .unwrap()
+        //         .get_element_by_id("canvas")
+        //         .unwrap()
+        //         .dyn_into::<web_sys::HtmlCanvasElement>()
+        //         .unwrap();
+        //     let w = canvas.client_width() as u32;
+        //     let h = canvas.client_height() as u32;
+
+        //     if w != self.config.width || h != self.config.height {
+        //         canvas.set_width(w);
+        //         canvas.set_height(h);
+        //         self.resize(winit::dpi::PhysicalSize::new(w, h));
+        //     }
+        // }
+
+
         let surface_texture = loop {
             match Self::get_texture_surface(&self.surface) {
                 Some(t) => break t,
                 None => self.surface.configure(&self.device, &self.config),
             }
         };
-        let size = surface_texture.texture.size();
-        self.config.width = size.width;
-        self.config.height = size.height;
+        // let size = surface_texture.texture.size();
+        // self.config.width = size.width;
+        // self.config.height = size.height;
         let view = surface_texture.texture.create_view(&wgpu::TextureViewDescriptor::default());
         self.surface_texture = Some(surface_texture);
 
@@ -155,34 +172,6 @@ impl State {
 
     pub async fn initialize_environment() -> Self {
         let event_loop = EventLoop::new().unwrap();
-
-        // let window = WindowBuilder::new()
-        //     .with_title("wgpu app")
-        //     // .with_inner_size(winit::dpi::LogicalSize::new(1280, 720))
-        //     .build(&event_loop)
-        //     .unwrap();
-
-        
-        // #[cfg(target_arch = "wasm32")] {
-        //     use winit::platform::web::WindowExtWebSys;
-
-        //     let canvas = window.canvas().unwrap();
-        //     canvas.set_width(600);
-        //     canvas.set_height(400);
-
-        //     canvas.set_id("wgpu-canvas");
-            
-        //     let node = canvas.into(); 
-
-        //     web_sys::window()
-        //         .unwrap()
-        //         .document()
-        //         .unwrap()
-        //         .body()
-        //         .unwrap()
-        //         .append_child(&node)
-        //         .unwrap();
-        // }
 
         let window = {#[cfg(target_arch = "wasm32")] {
                 use wasm_bindgen::JsCast;
@@ -229,8 +218,26 @@ impl State {
         let window = std::sync::Arc::new(window);
 
         // let size = window.inner_size();
+        // #[cfg(target_arch = "wasm32")]
+        // let size = winit::dpi::PhysicalSize::new(600, 400);
+        // #[cfg(not(target_arch = "wasm32"))]
+        // let size = window.inner_size();
         #[cfg(target_arch = "wasm32")]
-        let size = winit::dpi::PhysicalSize::new(600, 400);
+        let size = {
+            use wasm_bindgen::JsCast;
+            let canvas = web_sys::window()
+                .unwrap()
+                .document()
+                .unwrap()
+                .get_element_by_id("canvas")
+                .unwrap()
+                .dyn_into::<web_sys::HtmlCanvasElement>()
+                .unwrap();
+            winit::dpi::PhysicalSize::new(
+                canvas.client_width() as u32,
+                canvas.client_height() as u32,
+            )
+        };
         #[cfg(not(target_arch = "wasm32"))]
         let size = window.inner_size();
 
@@ -262,6 +269,10 @@ impl State {
             })
             .await
             .unwrap();
+
+        // device.on_uncaptured_error(Arc::new(|error| {
+        //     log_print!("Device error: {:?}", error);
+        // }));
 
 
         // // 5. Surface format (your CANVAS_FORMAT)
@@ -306,6 +317,8 @@ impl State {
             size,
             surface_texture: None,
             surface_format: format,
+            depth_texture,
+            depth_texture_view,
 
             event_loop: Some(event_loop)
         }

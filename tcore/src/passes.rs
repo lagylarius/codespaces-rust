@@ -120,8 +120,6 @@ impl<D: ComputeDispatch> ComputePassCommon<D> {
 
         self.queue.submit(std::iter::once(encoder.finish()));
     }
-
-
 }
 
 
@@ -287,8 +285,8 @@ pub trait ComputeDispatch: DispatchTrait {
 }
 
 impl DispatchTrait for Dispatch {
-    fn new(device: &Arc<wgpu::Device>) -> Self { Self }
-    fn pre_pass(&self, encoder: &mut wgpu::CommandEncoder, buffers: &[&wgpu::Buffer]) {  }
+    fn new(_: &Arc<wgpu::Device>) -> Self { Self }
+    fn pre_pass(&self, _: &mut wgpu::CommandEncoder, _: &[&wgpu::Buffer]) {  }
 }
 
 impl DispatchTrait for SelfDispatch {
@@ -385,11 +383,11 @@ trait TextureTrait {
 }
 
 impl TextureTrait for NoTexture {
-    fn new(device: &Arc<wgpu::Device>, texture: wgpu::Texture) -> Self { Self }
+    fn new(_: &Arc<wgpu::Device>, _: wgpu::Texture) -> Self { Self }
     fn extra_group_layouts(&self) -> Vec<&wgpu::BindGroupLayout> {
         vec![]
     }
-    fn set_texture_bind_group(&self, buffers: &[&wgpu::Buffer], pass: &mut wgpu::RenderPass) {
+    fn set_texture_bind_group(&self, _: &[&wgpu::Buffer], _: &mut wgpu::RenderPass) {
     }
 }
 
@@ -443,7 +441,7 @@ impl TextureTrait for Texture {
         Self { texture_bindgroup, texture_bind_group_layout }
     }
 
-    fn set_texture_bind_group(&self, buffers: &[&wgpu::Buffer], pass: &mut wgpu::RenderPass) {
+    fn set_texture_bind_group(&self, _: &[&wgpu::Buffer], pass: &mut wgpu::RenderPass) {
         pass.set_bind_group(1, &self.texture_bindgroup, &[]);
     }
 

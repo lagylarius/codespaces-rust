@@ -162,6 +162,14 @@ function __wbg_get_imports() {
         __wbg_clearTimeout_ef73c3ecbb0ece69: function(arg0, arg1) {
             arg0.clearTimeout(arg1);
         },
+        __wbg_clientHeight_af66ce6b5259204b: function(arg0) {
+            const ret = arg0.clientHeight;
+            return ret;
+        },
+        __wbg_clientWidth_128226e900ef22eb: function(arg0) {
+            const ret = arg0.clientWidth;
+            return ret;
+        },
         __wbg_close_38d22e2ee9732188: function(arg0) {
             arg0.close();
         },

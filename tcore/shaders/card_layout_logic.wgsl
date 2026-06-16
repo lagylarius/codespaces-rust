@@ -20,6 +20,10 @@ fn cs_main(@builtin(global_invocation_id) gid: vec3<u32>) {
     atomicStore(&card_data.hovering_max_z,0u);
     workgroupBarrier();
 
+    if (gid.x >= card_data.total) {
+        return;
+    }
+
     let c = card_data.cards[gid.x];
 
     let mouse = input_u.mouse_pos;
