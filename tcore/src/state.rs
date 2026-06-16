@@ -19,6 +19,8 @@ pub struct State {
     pub config: wgpu::SurfaceConfiguration,
     pub surface_format: wgpu::TextureFormat,
     surface_texture: Option<wgpu::SurfaceTexture>,
+    depth_texture: wgpu::Texture,
+    depth_texture_view: wgpu::TextureView,
     pub size: winit::dpi::PhysicalSize<u32>,
     
     pub event_loop: Option<EventLoop<()>>
@@ -85,6 +87,26 @@ impl State {
                 panic!("Error fetching texture from surface")
             }
         };
+    }
+
+    fn create_depth_texture(device: &wgpu::Device, cavas_config: &wgpu::SurfaceConfiguration) -> (wgpu::Texture, wgpu::TextureView) {
+        let depth_texture = device.clone().create_texture(&wgpu::TextureDescriptor {
+            label: Some("depth texture"),
+            size: wgpu::Extent3d {
+                width: cavas_config.width,
+                height: cavas_config.height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Depth24Plus,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
+        });
+
+        let depth_view = depth_texture.create_view(&Default::default());
+        return (depth_texture,depth_view);
     }
 
     pub fn depth_view(&mut self) -> wgpu::TextureView {
@@ -272,6 +294,8 @@ impl State {
 
         
         log_print!("Adapter: {:?}", adapter.get_info());
+
+        let (depth_texture,depth_texture_view) = Self::create_depth_texture(&device, &config);
 
         Self {
             window: window,
