@@ -13,11 +13,12 @@ struct InputUniforms {
 
 @group(0) @binding(0) var<storage,read_write> card_data: CardArray;
 @group(0) @binding(1) var<uniform> input_u: InputUniforms;
+@group(0) @binding(2) var<storage,read_write> hovering_buffer: AtomicHoveringBuffer;
 
 @compute @workgroup_size(256)
 fn cs_main(@builtin(global_invocation_id) gid: vec3<u32>) {
 
-    atomicStore(&card_data.hovering_max_z,0u);
+    atomicStore(&hovering_buffer.hovering_max_z,0xFFFFFFFF);
     workgroupBarrier();
 
     if (gid.x >= card_data.total) {
@@ -25,6 +26,9 @@ fn cs_main(@builtin(global_invocation_id) gid: vec3<u32>) {
     }
 
     let c = card_data.cards[gid.x];
+
+
+    if (c.tableau == 0u) {return;}
 
     let mouse = input_u.mouse_pos;
 
@@ -41,9 +45,9 @@ fn cs_main(@builtin(global_invocation_id) gid: vec3<u32>) {
         
     if (!hovering) {return;}
 
-    let z = c.stack_idx + 1u;
+    let z = get_depth(c,card_data.total);
 
-    atomicMax(&card_data.hovering_max_z, z);
+    atomicMin(&hovering_buffer.hovering_max_z, z);
     
-    card_data.hovering = 2u;
+    // card_data.hovering = 2u;
 }

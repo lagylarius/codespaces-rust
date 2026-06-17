@@ -113,7 +113,40 @@ fn resolve_relative_path(base_path: &str, relative_path: &str) -> String {
     combined.to_string_lossy().to_string()
 }
 
-const SHADER_WEB_CACHING : bool = false;
+//--------------------------------------
+//----Reads one u32 from gpu memory----
+//--------------------------------------
+pub async fn gpu_readback_byte(device: &wgpu::Device, queue: &wgpu::Queue, gpu_buffer: &wgpu::Buffer, readback_buffer: &wgpu::Buffer, read_offset: u64) -> u32 {
+    let mut encoder = device.create_command_encoder(&Default::default());
+    encoder.copy_buffer_to_buffer(
+        &gpu_buffer,
+        read_offset,
+        &readback_buffer,
+        0,
+        4,
+    );
+
+    queue.submit(Some(encoder.finish()));
+
+    let slice = readback_buffer.slice(..);
+
+    slice.map_async(wgpu::MapMode::Read, |result| {
+        result.unwrap();
+    });
+
+    device.poll(wgpu::PollType::Wait {
+        submission_index: None,
+        timeout: None,
+    }).unwrap();
+
+    let value: u32 = {
+        let data = slice.get_mapped_range();
+        u32::from_le_bytes(data[0..4].try_into().unwrap())
+    };
+
+    readback_buffer.unmap();
+    return value;
+}
 
 #[cfg(target_arch = "wasm32")]
 use {

@@ -28,6 +28,7 @@ pub struct State {
 
 pub enum LoopEvent {
     Render,
+    Click,
     OnResizing(winit::dpi::PhysicalSize<u32>),
     OnMouseMove(f64, f64),
 }
@@ -45,9 +46,7 @@ impl State {
         self.depth_texture = depth_texture;
         self.depth_texture_view = depth_texture_view;
 
-        // #[cfg(not(target_arch = "wasm32"))] { // on wasm this is handled by the browser and causes a feedback loop
-            self.surface.configure(&self.device, &self.config)
-        // };
+        self.surface.configure(&self.device, &self.config)
     }
 
     pub fn run<F: FnMut(LoopEvent)>(eloop: EventLoop<()>,mut update: F) {
@@ -65,12 +64,19 @@ impl State {
                         WindowEvent::RedrawRequested => {
                             update(LoopEvent::Render);
                         }
+                        WindowEvent::MouseInput { state, button, .. } => {
+                        if button == winit::event::MouseButton::Left
+                            && state == winit::event::ElementState::Pressed
+                        {
+                            update(LoopEvent::Click);
+                        }
+                    }
                         _ => {}
                     }            
                 }
-                // Event::AboutToWait => {
-                //     update(LoopEvent::Render);
-                // }
+                Event::AboutToWait => {
+                    //maybe do logic here
+                }
                 _ => {}
             }
         });
@@ -86,7 +92,6 @@ impl State {
                 panic!("Surface timeout")
             }
             wgpu::CurrentSurfaceTexture::Outdated => {
-                // panic!("Surface outdated")
                 return None;
             }
             wgpu::CurrentSurfaceTexture::Lost => {
@@ -126,40 +131,14 @@ impl State {
     }
 
     pub fn start_draw(&mut self) -> wgpu::TextureView {
-        // #[cfg(target_arch = "wasm32")] {
-        //     use wasm_bindgen::JsCast;
-        //     let canvas = web_sys::window()
-        //         .unwrap()
-        //         .document()
-        //         .unwrap()
-        //         .get_element_by_id("canvas")
-        //         .unwrap()
-        //         .dyn_into::<web_sys::HtmlCanvasElement>()
-        //         .unwrap();
-        //     let w = canvas.client_width() as u32;
-        //     let h = canvas.client_height() as u32;
-
-        //     if w != self.config.width || h != self.config.height {
-        //         canvas.set_width(w);
-        //         canvas.set_height(h);
-        //         self.resize(winit::dpi::PhysicalSize::new(w, h));
-        //     }
-        // }
-
-
         let surface_texture = loop {
             match Self::get_texture_surface(&self.surface) {
                 Some(t) => break t,
                 None => self.surface.configure(&self.device, &self.config),
             }
         };
-        // let size = surface_texture.texture.size();
-        // self.config.width = size.width;
-        // self.config.height = size.height;
         let view = surface_texture.texture.create_view(&wgpu::TextureViewDescriptor::default());
         self.surface_texture = Some(surface_texture);
-
-
 
         view
     }

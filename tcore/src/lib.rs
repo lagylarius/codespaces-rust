@@ -39,10 +39,6 @@ use {
 
 
 use wgpu::util::DeviceExt;
-use winit::{
-    event_loop::EventLoop,
-    window::WindowBuilder,
-};
 
 
 #[cfg(target_arch = "wasm32")]
@@ -53,8 +49,6 @@ use std::time::Instant;
 
 pub async fn run() {
     log_print!("Initializing..");
-    let mut mouse_x: f64 = -10000.0;
-    let mut mouse_y: f64 = -10000.0;
     let mut state = State::initialize_environment().await;
 
 
@@ -82,6 +76,21 @@ pub async fn run() {
         label: Some("Card Data Buffer"),
         size: 1024 * 1024,
         usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    });
+    let hovering_buffer = state.device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("Card Data Buffer"),
+        size: 4*2,
+        usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    });
+
+
+    let readback_buffer = state.device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("Readback Buffer"),
+        size: 4,
+        usage: wgpu::BufferUsages::MAP_READ
+            | wgpu::BufferUsages::COPY_DST,
         mapped_at_creation: false,
     });
 
@@ -167,6 +176,16 @@ pub async fn run() {
                 },
                 count: None,
             },
+            wgpu::BindGroupLayoutEntry {
+                binding: 3,
+                visibility: wgpu::ShaderStages::FRAGMENT | wgpu::ShaderStages::VERTEX,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Storage { read_only: true },
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
         ],
         shaders.get("card_vertex").unwrap(),
         shaders.get("card_fragment").unwrap(),
@@ -196,13 +215,23 @@ pub async fn run() {
                 },
                 count: None,
             },
+            wgpu::BindGroupLayoutEntry {
+                binding: 2,
+                visibility: wgpu::ShaderStages::COMPUTE,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Storage { read_only: false },
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
         ]
         ,
         shaders.get("card_layout_logic").unwrap());
 
 
     //Game loop
-    let g = CardArray::new();
+    let mut g = CardArray::new();
 
 
     let mut last_time = Instant::now();
@@ -230,10 +259,9 @@ pub async fn run() {
                     let depth_texture = state.depth_view();
                     let depth = Depth {depth_view: depth_texture};
 
-                    card_layout_logic.do_pass(&[&card_data_buffer,&input_uniform_buffer]);
+                    card_layout_logic.do_pass(&[&card_data_buffer,&input_uniform_buffer,&hovering_buffer]);
                     render_background.do_pass(&canvas_texture, &[&render_uniform_buffer],NoDepth);
-                    render_cards.do_pass(&canvas_texture, &[&card_data_buffer, &render_uniform_buffer, &input_uniform_buffer],depth);
-
+                    render_cards.do_pass(&canvas_texture, &[&card_data_buffer, &render_uniform_buffer, &input_uniform_buffer,&hovering_buffer],depth);
 
                     state.end_draw();
 
@@ -246,13 +274,30 @@ pub async fn run() {
                     }
                 },
                 LoopEvent::OnMouseMove(x, y) => {
-                    mouse_x = x;
-                    mouse_y = y;
                     state.queue.write_buffer(
                         &input_uniform_buffer,
                         0,
                         bytemuck::cast_slice(&[x as f32, y as f32]),
                     );
+                },
+                LoopEvent::Click => {
+                    let id = {
+                        #[cfg(target_arch = "wasm32")] {
+                            wasm_bindgen_futures::spawn_local(async move {
+                                utils::gpu_readback_byte(&state.device, &state.queue, &hovering_buffer, &readback_buffer,0)
+                            });
+                        }
+                        #[cfg(not(target_arch = "wasm32"))] {
+                            pollster::block_on(
+                            utils::gpu_readback_byte(&state.device, &state.queue, &hovering_buffer, &readback_buffer,0)
+                            )
+                        }
+                    };
+
+                    g.pick_card(id);
+
+
+
                 },
             }
         },

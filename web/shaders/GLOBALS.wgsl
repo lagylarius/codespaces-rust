@@ -45,8 +45,8 @@ fn get_value_numeric(card: Card) -> u32 {
 fn get_world_position_and_size(c: Card, mouse_pos: vec2<f32>) -> vec4<f32> {
     var origin = vec2<f32>(50.0,50.0);
 
-    if (c.tableau != 255u) {
-        origin += vec2<f32>(120.0*f32(c.tableau),0.0);
+    if (c.tableau != 0) {
+        origin += vec2<f32>(120.0*f32(c.tableau-1u),0.0);
     }
     else {
         origin = mouse_pos;
@@ -57,6 +57,24 @@ fn get_world_position_and_size(c: Card, mouse_pos: vec2<f32>) -> vec4<f32> {
     var size = vec2<f32>(92.0,132.0);
 
     return vec4<f32>(origin,size);
+}
+
+fn bit_width(x: u32) -> u32 {
+    return 32u - countLeadingZeros(x - 1u);
+}
+fn max_depth(max_cards: u32) -> u32 {
+    return 256u * (1u << bit_width(max_cards)) - 1u;
+}
+fn get_depth(c: Card, max_cards: u32) -> u32 {
+    let n = bit_width(max_cards);
+    let mask = (1u << n) - 1u;
+    let tableau = c.tableau << n;
+
+    var card_z: u32 = ~c.stack_idx;
+
+    card_z = card_z & mask;
+
+    return tableau + card_z;
 }
 
 struct Card {
@@ -72,6 +90,15 @@ struct CardArray {
     hovering: u32,
     hovering_max_z: atomic<u32>,
     cards: array<Card>
+}
+
+struct HoveringBuffer {
+    hovering: u32,
+    hovering_max_z: u32
+}
+struct AtomicHoveringBuffer {
+    hovering: u32,
+    hovering_max_z: atomic<u32>
 }
 
 struct ReadOnlyCardArray {
