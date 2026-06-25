@@ -16,10 +16,11 @@ fn to_ndc(pixel: vec2<f32>) -> vec2<f32> {
     return vec2<f32>(v.x,-v.y);
 }
 
-@group(0) @binding(0) var<storage,read> card_data: ReadOnlyCardArray;
+@group(0) @binding(0) var<storage,read> card_data: CardArray;
 @group(0) @binding(1) var<uniform> render_u: RenderUniforms;
 @group(0) @binding(2) var<uniform> input_u: InputUniforms;
 @group(0) @binding(3) var<storage,read> hovering_buffer: HoveringBuffer;
+@group(0) @binding(4) var<storage,read> animation_data: array<Animation>;
 
 
 @group(1) @binding(0) var textureSampler: sampler;
@@ -130,15 +131,21 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
 
     let c = card_data.cards[in.instanceIndex];
 
-    var suit = get_suit_numeric(c);
-    var value = get_value_numeric(c);
+    var suit = get_suit(c);
+    var value = get_value(c);
     if (get_type(c) == TYPE_CARD_HIDDEN) {
         suit = 0u;
         value = 0u;
     }
     if (get_type(c) == TYPE_CARD_TABLEAU) {
-        suit = 1u;
-        value = 0u;
+        if (value == 1) {
+            suit = 2u;
+            value = 0u;
+        }
+        else {
+            suit = 1u;
+            value = 0u;
+        }
     }
 
 
@@ -204,7 +211,17 @@ fn vs_main(
 
     let base = get_type(c) == TYPE_CARD_TABLEAU;
 
-    let aabb = get_world_position_and_size(c, input_u.mouse_pos);
+    var aabb = get_world_position_and_size(c, input_u.mouse_pos);
+
+    if (c.animation_id != 0xFFFFFFFFu) {
+        var c_prev = c;
+        let animation = animation_data[c.animation_id];
+        c_prev.tableau = animation.prev_tableau;
+        c_prev.stack_idx = animation.prev_stack_idx;
+
+        aabb = mix(aabb,get_world_position_and_size(c_prev, input_u.mouse_pos),clamp(1.0 - animation.t,0.0,1.0));
+    }
+
     let total_cards: u32 = card_data.total;
     let max_depth = max_depth(total_cards);
     let z = get_depth(c,total_cards);

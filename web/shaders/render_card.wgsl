@@ -19,7 +19,7 @@ fn to_ndc(pixel: vec2<f32>) -> vec2<f32> {
 @group(0) @binding(0) var<storage,read> card_data: ReadOnlyCardArray;
 @group(0) @binding(1) var<uniform> render_u: RenderUniforms;
 @group(0) @binding(2) var<uniform> input_u: InputUniforms;
-@group(0) @binding(3) var<storage,read_write> hovering_buffer: HoveringBuffer;
+@group(0) @binding(3) var<storage,read> hovering_buffer: HoveringBuffer;
 
 
 @group(1) @binding(0) var textureSampler: sampler;
@@ -114,13 +114,6 @@ fn quantize(p: vec2<f32>, object_size: vec2<f32>) -> vec2<f32> {
 
     return p_px / object_size;
 }
-fn quantized_pixel_size(object_size: vec2<f32>) -> vec2<f32> {
-    return PIXEL_FACTOR / object_size;
-}
-
-
-
-
 
 
 
@@ -137,10 +130,14 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
 
     let c = card_data.cards[in.instanceIndex];
 
-    var suit = get_suit(c);
-    var value = get_value_numeric(c) + 1u;
+    var suit = get_suit_numeric(c);
+    var value = get_value_numeric(c);
     if (get_type(c) == TYPE_CARD_HIDDEN) {
         suit = 0u;
+        value = 0u;
+    }
+    if (get_type(c) == TYPE_CARD_TABLEAU) {
+        suit = 1u;
         value = 0u;
     }
 
@@ -154,16 +151,21 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
     let is_shadow = check.y;
 
 
+
     if (uv.x > 1.0 || uv.y > 1.0 || uv.x < 0.0 || uv.y < 0.0) {
         color = vec4<f32>(1.0,1.0,1.0,0.0);
     }
     if (color.a == 0.0 && bool(in.hovering) && is_border) {
         if (c.tableau != 0u) {
-            return vec4<f32>(HIGHLIGHT_COLOR,0.99);
+            color = vec4<f32>(HIGHLIGHT_COLOR,0.99);
         }
         else if is_shadow {
-            return vec4<f32>(0.0,0.0,0.0,0.4);
+            color = vec4<f32>(0.0,0.0,0.0,0.4);
         }
+    }
+
+    if (color.a == 0.0) {
+        discard;
     }
 
     return color;
@@ -188,7 +190,6 @@ fn vs_main(
         vec2<f32>(-1.0, 1.0),
         vec2<f32>( 1.0, 1.0)
     );
-
     var uv = array<vec2<f32>, 4>(
         vec2<f32>(0.0, 1.0), // bottom-left
         vec2<f32>(1.0, 1.0), // bottom-right
@@ -201,6 +202,8 @@ fn vs_main(
     let on_mouse = c.tableau == 0;
     let locked = get_type(c) == TYPE_CARD_HIDDEN;
 
+    let base = get_type(c) == TYPE_CARD_TABLEAU;
+
     let aabb = get_world_position_and_size(c, input_u.mouse_pos);
     let total_cards: u32 = card_data.total;
     let max_depth = max_depth(total_cards);
@@ -209,7 +212,7 @@ fn vs_main(
     var origin = aabb.xy;
     var size = aabb.zw;
 
-    var hovering = z == hovering_buffer.hovering_max_z;
+    var hovering = c.id == hovering_buffer.hovering_id;
 
     if (c.tableau == 0u) {
         hovering = true;

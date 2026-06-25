@@ -18,6 +18,7 @@ struct InputUniforms {
 @compute @workgroup_size(256)
 fn cs_main(@builtin(global_invocation_id) gid: vec3<u32>) {
 
+    hovering_buffer.hovering_id = 0xFFFFFFFF;
     atomicStore(&hovering_buffer.hovering_max_z,0xFFFFFFFF);
     workgroupBarrier();
 
@@ -27,6 +28,8 @@ fn cs_main(@builtin(global_invocation_id) gid: vec3<u32>) {
 
     let c = card_data.cards[gid.x];
 
+
+    // if get_type(c) == TYPE_CARD_TABLEAU {return;}
 
     if (c.tableau == 0u) {return;}
 
@@ -48,6 +51,12 @@ fn cs_main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let z = get_depth(c,card_data.total);
 
     atomicMin(&hovering_buffer.hovering_max_z, z);
+
+    workgroupBarrier();
+
+    if (z == atomicLoad(&hovering_buffer.hovering_max_z)) {
+        hovering_buffer.hovering_id = c.id;
+    }
     
     // card_data.hovering = 2u;
 }

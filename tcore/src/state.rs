@@ -1,4 +1,4 @@
-use winit::window::Window;
+use winit::{keyboard::{KeyCode, PhysicalKey}, window::Window};
 
 
 use std::sync::Arc;
@@ -29,6 +29,7 @@ pub struct State {
 pub enum LoopEvent {
     Render,
     Click,
+    ActionF1,
     OnResizing(winit::dpi::PhysicalSize<u32>),
     OnMouseMove(f64, f64),
 }
@@ -65,12 +66,27 @@ impl State {
                             update(LoopEvent::Render);
                         }
                         WindowEvent::MouseInput { state, button, .. } => {
-                        if button == winit::event::MouseButton::Left
-                            && state == winit::event::ElementState::Pressed
-                        {
-                            update(LoopEvent::Click);
+                            if button == winit::event::MouseButton::Left
+                                && state == winit::event::ElementState::Pressed
+                            {
+                                update(LoopEvent::Click);
+                            }
                         }
-                    }
+                        WindowEvent::KeyboardInput { event, .. } => {
+                            if event.state == winit::event::ElementState::Pressed {
+                                match event.physical_key {
+                                    PhysicalKey::Code(KeyCode::F1) => {
+                                        update(LoopEvent::ActionF1);
+                                    }
+
+                                    PhysicalKey::Code(KeyCode::Escape) => {
+                                        control_flow.exit();
+                                    }
+
+                                    _ => {}
+                                }
+                            }
+                        }
                         _ => {}
                     }            
                 }

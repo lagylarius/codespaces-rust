@@ -19,8 +19,10 @@ mod passes;
 mod utils;
 mod game;
 
+mod gui;
 
-use crate::{game::CardArray, passes::{Depth, Dispatch, NoDepth, SelfDispatch}, state::{LoopEvent, State}, utils::load_shader_modules};
+
+use crate::{game::CardArray, gui::{draw_ui, egui_renderer}, passes::{Depth, Dispatch, NoDepth, SelfDispatch}, state::{LoopEvent, State}, utils::load_shader_modules};
 
 #[cfg(target_arch = "wasm32")]
 use {
@@ -73,6 +75,12 @@ pub async fn run() {
     });
 
     let card_data_buffer = state.device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("Card Data Buffer"),
+        size: 1024 * 1024,
+        usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    });
+    let animation_data_buffer = state.device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("Card Data Buffer"),
         size: 1024 * 1024,
         usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::COPY_DST,
@@ -186,6 +194,16 @@ pub async fn run() {
                 },
                 count: None,
             },
+            wgpu::BindGroupLayoutEntry {
+                binding: 4,
+                visibility: wgpu::ShaderStages::FRAGMENT | wgpu::ShaderStages::VERTEX,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Storage { read_only: true },
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
         ],
         shaders.get("card_vertex").unwrap(),
         shaders.get("card_fragment").unwrap(),
@@ -229,6 +247,21 @@ pub async fn run() {
         ,
         shaders.get("card_layout_logic").unwrap());
 
+    //Egui
+
+    let mut egui_renderer = egui_renderer::EguiRenderer::new(
+        &state.device,
+        state.surface_format,
+        None,
+        1,
+    );
+    let ctx = egui_renderer.context();
+    ctx.set_visuals(egui::Visuals {
+        window_shadow: egui::Shadow::NONE,
+        window_fill: egui::Color32::TRANSPARENT,
+        ..egui::Visuals::dark()
+    });
+
 
     //Game loop
     let mut g = CardArray::new();
@@ -253,7 +286,9 @@ pub async fn run() {
                 },
                 LoopEvent::Render => { 
 
-                    g.flush_to_buffer(&state.queue, &card_data_buffer);
+                    g.advance_animations();
+
+                    g.flush_to_buffer(&state.queue, &card_data_buffer,&animation_data_buffer);
 
                     let canvas_texture = state.start_draw();
                     let depth_texture = state.depth_view();
@@ -261,7 +296,17 @@ pub async fn run() {
 
                     card_layout_logic.do_pass(&[&card_data_buffer,&input_uniform_buffer,&hovering_buffer]);
                     render_background.do_pass(&canvas_texture, &[&render_uniform_buffer],NoDepth);
-                    render_cards.do_pass(&canvas_texture, &[&card_data_buffer, &render_uniform_buffer, &input_uniform_buffer,&hovering_buffer],depth);
+                    render_cards.do_pass(&canvas_texture, 
+                        &[
+                            &card_data_buffer, 
+                            &render_uniform_buffer, 
+                            &input_uniform_buffer,
+                            &hovering_buffer,
+                            &animation_data_buffer
+                        ],
+                        depth);
+
+                    draw_ui(&mut egui_renderer, &state, &canvas_texture,&g);
 
                     state.end_draw();
 
@@ -293,12 +338,11 @@ pub async fn run() {
                             )
                         }
                     };
-
                     g.pick_card(id);
-
-
-
                 },
+                LoopEvent::ActionF1 => {
+                    g.deal();
+                }
             }
         },
     );

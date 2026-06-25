@@ -8,6 +8,8 @@ crate-type = ["rlib", "cdylib"]
 
 [dependencies]
 anyhow = "1.0.102"
+bilge = "0.3.0"
+bitfield-struct = "0.13.0"
 bytemuck = "1.25.0"
 image = "0.25.10"
 pollster = "0.4.0"
@@ -16,6 +18,8 @@ regex = "1.12.4"
 wgpu = "29.0.3"
 winit = "0.29"
 
+egui = "0.34.3"
+egui-wgpu = "0.34.3"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 console_error_panic_hook = "0.1"

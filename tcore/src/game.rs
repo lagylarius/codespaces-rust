@@ -1,115 +1,58 @@
-use std::sync::Arc;
-
-use bytemuck::Zeroable;
-use anyhow::anyhow;
-
-
-const SUITS: [u32; 4] = [SUIT_SPADES, SUIT_HEARTS, SUIT_CLUBS, SUIT_DIAMONDS];
-const VALS: [u32; 13] = [
-    VAL_ACE, VAL_TWO, VAL_THREE, VAL_FOUR, VAL_FIVE, VAL_SIX, VAL_SEVEN,
-    VAL_EIGHT, VAL_NINE, VAL_TEN, VAL_JACK, VAL_QUEEN, VAL_KING,
-];
-
-const VAL_ACE: u32   = 0x01;
-const VAL_TWO: u32   = 0x02;
-const VAL_THREE: u32 = 0x03;
-const VAL_FOUR: u32  = 0x04;
-const VAL_FIVE: u32  = 0x05;
-const VAL_SIX: u32   = 0x06;
-const VAL_SEVEN: u32 = 0x07;
-const VAL_EIGHT: u32 = 0x08;
-const VAL_NINE: u32  = 0x09;
-const VAL_TEN: u32   = 0x0A;
-const VAL_JACK: u32  = 0x0B;
-const VAL_QUEEN: u32 = 0x0C;
-const VAL_KING: u32  = 0x0D;
-
-const SUIT_HEARTS   : u32 = 0x00;
-const SUIT_SPADES   : u32 = 0x10;
-const SUIT_DIAMONDS : u32 = 0x20;
-const SUIT_CLUBS    : u32 = 0x30;
-
-const COLOR_MASK: u32 = 0b0001 << 4;
-
-const TYPE_CARD: u32 = 0x100;
-const TYPE_HIDDEN: u32 = 0x200;
-const TYPE_TABLEAU: u32 = 0x300;
+mod card;
+mod sequence;
+use card::*;
 
 
-const VALUE_MASK: u32 = 0x00F;
-const SUIT_MASK: u32  = 0x0F0;
-const TYPE_MASK: u32  = 0xF00;
-
-#[repr(C)]
-#[derive(bytemuck::Pod, bytemuck::Zeroable, Clone, Copy)]
-struct GpuCard {
-    id: u32,
-    value: u32,
-    tableau: u32,
-    stack_idx: u32
-}
-
-
-use std::sync::atomic::{AtomicU32, Ordering};
-
-static NEXT_ID: AtomicU32 = AtomicU32::new(0);
-
-fn next_id() -> u32 {
-    NEXT_ID.fetch_add(1, Ordering::Relaxed)
-}
-
-struct Card {
-    id: u32,
-    value: u32
-}
-
-impl Card {
-    fn suit(&self) -> u32 { self.value & SUIT_MASK }
-    fn t(&self) -> u32 { self.value & TYPE_MASK }
-    fn val(&self) -> u32  { self.value & VALUE_MASK }
-    
-    fn hide(&mut self) {
-        self.value = TYPE_HIDDEN | (self.value & !TYPE_MASK);
-    }
-    fn unhide(&mut self) {
-        if self.is_tableau() {return;}
-        let payload = self.value & !TYPE_MASK;
-        self.value = TYPE_CARD | payload;
-    }
-    fn is_tableau(&self) -> bool {
-        self.t() == TYPE_TABLEAU
-    }
-    fn is_hidden(&self) -> bool {
-        self.t() == TYPE_HIDDEN
-    }
-    fn new(suit: u32, value: u32) -> Card {
-        Card {
-            id: next_id(),
-            value: TYPE_HIDDEN | value | suit
-        }
-    }
-    fn new_tableau() -> Card {
-        Card {
-            id: next_id(),
-            value: TYPE_TABLEAU
-        }
-    }
-
-    fn get_color(&self) -> u32 {self.suit() & COLOR_MASK}
+use std::{collections::{HashMap, VecDeque}, sync::Arc};
 
 
 
-    // fn can_be_placed_on(&self, tab: &Vec<Card>) -> bool {
-    //     let Some(c) = tab.last() else {
-    //         return false;
-    //     };
 
-    //     if (c.is_tableau() && c.)
-    // }
-}
 
 pub struct CardArray {
-    tableaus: Vec<Vec<Card>>
+    points: u32,
+    objective: Objective,
+    tableaus: Vec<Vec<Card>>,
+    burn_pile: Vec<Card>,
+    animation_queue: AnimationQueue
+}
+
+struct Objective {
+    cards: u32,
+    burns: u32,
+    phase: u32,
+}
+
+enum ObjectiveStatus {
+    Completed,
+    Failed,
+    Ongoing
+}
+
+impl Objective {
+    const INITIAL_CARDS: u32 = 6;
+    // const INITIAL_BURNS: u32 = 4;
+    const INITIAL_BURNS: u32 = 40;
+
+    fn new() -> Self { Self { cards: Self::INITIAL_CARDS, burns: Self::INITIAL_BURNS, phase: 1 } }
+    
+    fn burn(&mut self, count: u32) -> ObjectiveStatus {
+        self.cards = self.cards.saturating_sub(count);
+        self.burns -= 1;
+        if self.cards == 0 {
+            self.phase += 1;
+            self.cards = Self::INITIAL_CARDS * self.phase;
+            self.burns = Self::INITIAL_BURNS + self.phase * 2;
+            return ObjectiveStatus::Completed;
+        }
+
+        if self.burns == 0 {
+            return ObjectiveStatus::Failed
+        }
+
+        return ObjectiveStatus::Ongoing
+
+    }
 }
 
 struct CardPos {
@@ -117,17 +60,122 @@ struct CardPos {
     c: usize,
 }
 
-impl CardArray {
 
+use rand::seq::SliceRandom;
+use rand::rng;
+
+use crate::game::sequence::{CardSequence, CardSequenceOp};
+
+// pub fn can_be_placed(sequence_picked: &[Card], to: &[Card]) -> bool {
+//     //You can always place cards on burn tableaus, no matter what
+//     if to.get(0).is_some_and(|c| {c.tableau_is_burn()}) {return true;}
+
+//     let to_last = &to[to.len() - 1..];
+//     let sequence: &CardSequence = &[to_last,sequence_picked];
+//     sequence.is_valid_sequence()
+// }
+// pub fn can_be_picked(sequence_picked: &[Card]) -> bool {
+//     let sequence: &CardSequence = &[sequence_picked];
+//     sequence.is_valid_sequence()
+// }
+
+impl CardArray {
+    pub fn update(&mut self, tableau : usize) {
+        if self.tableaus[tableau].is_empty() {return;}
+        if self.tableaus[tableau].first().unwrap().tableau_is_burn() {
+            let mut removed: Vec<Card> = self.tableaus[tableau].drain(1..).collect();
+
+            let count = removed.len();
+
+            //Burning tableau: -15p
+            //Will burn cards. Cards burnt will give points if you burn at least 3 at the same time
+            let mut points: i32 = -15;
+            log_print!("Burning {} cards",removed.len());
+            for c in removed.iter() {
+                log_print!("+{} points",c.val_numeric());
+                //Ace: 2x
+                points += c.val_numeric() as i32;
+            }
+
+            removed.iter_mut().for_each(|c| {
+                c.hide();
+            });
+            
+            self.burn_pile.extend(removed);
+
+            self.points = self.points.saturating_add_signed(points);
+
+
+            match self.objective.burn(count as u32) {
+                ObjectiveStatus::Completed => {
+
+                },
+                ObjectiveStatus::Failed => {
+                    panic!("game over")
+                },
+                ObjectiveStatus::Ongoing => {
+
+                },
+            }
+        }
+
+        if self.tableaus[tableau].last().unwrap().t() == CardType::Hidden {
+            self.tableaus[tableau].last_mut().unwrap().unhide();
+        }
+    }
+
+
+
+    pub fn pick_card(&mut self, id: u32) {
+        if id == 0xFFFFFFFF { return;}
+        let Some(pos) = self.get_pos_by_id(id) else {
+            log_print!("Unknown card with id {}!",id);
+            return;
+        };
+        if self.tableaus[0].is_empty() {
+            let pos = self.get_pos_by_id(id).unwrap();
+            if (&self.tableaus[pos.t][pos.c..]).can_be_picked() {
+                self.move_view(pos.t, pos.c, 0);
+                self.update(pos.t);
+            }
+        }
+        else {
+            if (&self.tableaus[0][..]).can_be_placed_on(&self.tableaus[pos.t][..]) {
+                self.move_tableau(0,pos.t);
+                self.update(pos.t);
+            }
+        }
+    }
+
+    fn initialize(&mut self) {
+        self.add_c(Card::new_burn_tableau(),1);
+        for i in 2..8 {
+            self.add_c(Card::new_tableau(),i);
+        }
+        let mut deck: Vec<Card> = Vec::new();
+
+        for suit in SUITS {
+            for val in VALS {
+                let mut c = Card::new_card(suit, val);
+                c.hide();
+                deck.push(c);
+            }
+        }
+
+
+        deck.shuffle(&mut rng());
+
+        self.burn_pile = deck;
+    }
 
     fn get_pos_by_id(&self, id: u32) -> Option<CardPos> {
         self.tableaus.iter().enumerate().find_map(|(t_idx, t)| {
-            t.iter().position(|c| c.id == id)
+            t.iter().position(|c| c.id() == id)
                 .map(|c_idx| CardPos {t: t_idx, c: c_idx })
         })
     }
     fn get_card_by_id(&self, id: u32) -> Option<&Card> {
-        self.tableaus.iter().flatten().find(|c| c.id == id)
+        self.tableaus.iter().flatten().find(|c| c.id() == id)
     }
 
     fn get_t(&self, tableau : u32) -> &[Card] {
@@ -151,133 +199,234 @@ impl CardArray {
         self.tableaus[tableau as usize].push(card);
     }
 
-    fn reveal_top(&mut self, tableau: usize) {
-        if let Some(c) = self.tableaus[tableau].last_mut() && !c.is_tableau() {
-            c.unhide();
-        }
-    }
-    fn reveal_top_all(&mut self) {
-        for i in 0..self.tableaus.len() {
-            self.reveal_top(i);
-        }
-    }
-
-    fn initialize(&mut self) {
-        for i in 1..7 {
-            self.add_c(Card::new_tableau(),i);
-        }
-
-        let mut deck: Vec<Card> = Vec::new();
-
-        for suit in SUITS {
-            for val in 1..14 {
-                deck.push(Card::new(suit, val));
-            }
-        }
-
-        use rand::seq::SliceRandom;
-        use rand::rng;
-
-        deck.shuffle(&mut rng());
-
-        let mut t: u32 = 1;
-
-        for card in deck {
-            self.add_c(card, t);
-
-            t += 1;
-            if t >= 7 {
-                t = 1;
-            }
-        }
-        // self.add_c(Card::new(SUIT_HEARTS,0x02), 1);
-        // self.add_c(Card::new(SUIT_HEARTS,0x02), 1);
-        // self.add_c(Card::new(SUIT_HEARTS,0x02), 1);
-
-        
-        // self.add_c(Card::new(SUIT_DIAMONDS,0x09), 2);
-
-        self.reveal_top_all();
-    }
 
 
+
+    //###############################################################
+    //#--- Picks up cards from position @c_idx onwards in tableau @t_idx and moves them to tableau @to. 
+    //#--- Used when picking up a sequence to hold in hand (tableau 0).
+    //###############################################################
     fn move_view(&mut self, t_idx: usize, c_idx: usize, to: u32) {
         let split_off = self.tableaus[t_idx].split_off(c_idx);
+        for (i,c) in split_off.iter().enumerate() {
+            self.animation_queue.active.insert(c.id(), 
+            Animation { 
+                previous_tableau: t_idx as u32, 
+                previous_stack_idx: (c_idx+i) as u32,
+                t: 0.0,
+                _pad: 0.0,
+            });
+        }
         self.tableaus[to as usize].extend(split_off);
     }
     fn move_tableau(&mut self, from: usize, to: usize) {
         let from_cards = std::mem::take(&mut self.tableaus[from]);
+        for (i,c) in from_cards.iter().enumerate() {
+            self.animation_queue.active.insert(c.id(), 
+            Animation { 
+                previous_tableau: from as u32, 
+                previous_stack_idx: i as u32,
+                t: 0.0,
+                _pad: 0.0,
+            });
+        }
         self.tableaus[to].extend(from_cards);
     }
 
-    fn is_valid_sequence<'a>(cards: impl Iterator<Item = &'a Card>) -> bool {
-        let mut peekable = cards.peekable();
-        while let Some(a) = peekable.next() {
-            if let Some(b) = peekable.peek() {
-                if a.is_tableau() && b.val() == VAL_KING {return true;}
-                let diff_color = a.get_color() != b.get_color();
-                let descending = a.val() == b.val() + 1;
-                if !diff_color || !descending { return false; }
-            }
+    pub fn deal(&mut self) {
+        self.burn_pile.shuffle(&mut rng());
+
+        let mut deck: Vec<Card> = std::mem::take(&mut self.burn_pile);
+
+        let mut current_t = 0.0;
+        
+        let tableau_id: u32 = 0xFFFFFFF0;
+
+        for (i,c) in deck.iter().enumerate() {
+            self.animation_queue.active.insert(c.id(), 
+            Animation { 
+                previous_tableau: tableau_id, 
+                previous_stack_idx: i as u32,
+                t: current_t,
+                _pad: 0.0,
+            });
+            current_t -= 0.2;
         }
-        true
-    }
 
-    pub fn can_be_placed(from: &[Card], to: &[Card]) -> bool {
-        let i = to.last().into_iter().chain(from.iter());
-        Self::is_valid_sequence(i)
-    }
 
-    pub fn can_be_picked(from: &[Card]) -> bool {
-        Self::is_valid_sequence(from.iter())
-    }
+        let piles = 6;
+        let base = deck.len() / piles;
+        let extra = deck.len() % piles;
 
-    pub fn pick_card(&mut self, id: u32) {
-        if id == 0xFFFFFFFF { return;}
-        let Some(pos) = self.get_pos_by_id(id) else {
-            log_print!("Unknown card with id {}!",id);
-            return;
-        };
-        if self.tableaus[0].is_empty() {
-            let pos = self.get_pos_by_id(id).unwrap();
-            if !self.tableaus[pos.t][pos.c].is_tableau() && !self.tableaus[pos.t][pos.c].is_hidden() {
-                if Self::can_be_picked(&self.tableaus[pos.t][pos.c..]) {
-                    self.move_view(pos.t, pos.c, 0);
-                    self.reveal_top(pos.t);
+
+        for (i,t) in (2..8).enumerate() {
+            let cmax = base + if i < extra { 1 } else { 0 };
+            for c in 0..cmax {
+                let mut card = deck.pop().unwrap();
+                if t < c {
+                    card.unhide();
                 }
-            }
-        }
-        else {
-            if Self::can_be_placed(&self.tableaus[0], &self.tableaus[pos.t]) {
-                self.move_tableau(0,pos.t);
+                else {
+                    card.hide();
+                }
+                self.add_c(card, t as u32);
             }
 
+            self.update(t);
         }
     }
+
+
+
+
 
     pub fn new() -> Self {
-        let mut s = Self { tableaus: vec![] };
+        let mut s = Self {
+            points: 0,
+            objective: Objective::new(),
+            // objective: (6, 4),
+            // objective: (6, 40),
+            burn_pile: vec![],
+            tableaus: vec![] ,
+            animation_queue: AnimationQueue::new()
+        };
         s.initialize();
         s
     }
 
-    pub fn flush_to_buffer(&self, queue: &Arc<wgpu::Queue>, buffer: &wgpu::Buffer) {
+    pub fn advance_animations(&mut self) {
+        self.animation_queue.active.retain(|_, v| {
+            v.t += 0.1;
+            v.t < 1.0
+        });
+    }
+
+    pub fn flush_to_buffer(&self, queue: &Arc<wgpu::Queue>, buffer: &wgpu::Buffer, animation_buffer: &wgpu::Buffer) {
+
+        log_print!("Points: {}",self.points);
+        log_print!("Objective: {} in {}",self.objective.cards,self.objective.burns);
+
         let mut flat: Vec<GpuCard> = Vec::new();
-        let total: u32 = self.tableaus.iter().map(|t| t.len() as u32).sum();
+        
+        let mut flat_animations: Vec<GpuAnimation> = Vec::new();
+
+        let mut total: u32 = self.tableaus.iter().map(|t| t.len() as u32).sum();
+
+        let mut total_animations = 0;
 
         for (tableau_idx, tableau) in self.tableaus.iter().enumerate() {
             for (stack_idx, card) in tableau.iter().enumerate() {
+
+                let animation_id = if let Some(animation) = self.animation_queue.animation_for_card(card) {
+                    total_animations += 1;
+                    flat_animations.push(GpuAnimation { 
+                        previous_tableau: animation.previous_tableau, 
+                        previous_stack_idx: animation.previous_stack_idx,
+                        t: animation.t,
+                        _pad: 0.0,
+                    });
+                    total_animations - 1
+                }
+                else {
+                    0xFFFFFFFF
+                };
+
                 flat.push(GpuCard {
-                    id: card.id as u32,
-                    value: card.value,
+                    id_and_value: card.get_bits(),
                     tableau: tableau_idx as u32,
                     stack_idx: stack_idx as u32,
+                    animation_id,
+                    _pad: 0,
                 });
             }
         }
 
+        total += self.burn_pile.len() as u32;
+        for (stack_idx, card) in self.burn_pile.iter().enumerate() {
+            let animation_id = if let Some(animation) = self.animation_queue.animation_for_card(card) {
+                total_animations += 1;
+                flat_animations.push(GpuAnimation { 
+                    previous_tableau: animation.previous_tableau, 
+                    previous_stack_idx: animation.previous_stack_idx,
+                    t: animation.t,
+                    _pad: 0.0,
+                });
+                total_animations - 1
+            }
+            else {
+                0xFFFFFFFF
+            };
+            
+            flat.push(GpuCard {
+                id_and_value: card.get_bits(),
+                tableau: 0xFFFFFFF0,
+                stack_idx: stack_idx as u32,
+                animation_id,
+                _pad: 0,
+            });
+        }
+
+
         queue.write_buffer(buffer, 0, bytemuck::bytes_of(&total));
-        queue.write_buffer(&buffer, 4, bytemuck::bytes_of(&total.div_ceil(256)));
+        queue.write_buffer(buffer, 4, bytemuck::bytes_of(&total.div_ceil(256)));
         queue.write_buffer(buffer, 16, bytemuck::cast_slice(&flat));
+
+        
+        queue.write_buffer(animation_buffer, 0, bytemuck::cast_slice(&flat_animations));
     }
+
+    pub fn get_point_info(&self) -> (u32,u32,u32) {
+        (self.points,self.objective.cards,self.objective.burns)
+    }
+}
+
+
+
+#[repr(C)]
+#[derive(bytemuck::Pod, bytemuck::Zeroable, Clone, Copy)]
+struct GpuAnimation {
+    previous_tableau: u32,
+    previous_stack_idx: u32,
+    t: f32,
+    _pad: f32
+}
+
+struct Animation {
+    previous_tableau: u32,
+    previous_stack_idx: u32,
+    t: f32,
+    _pad: f32
+}
+struct AnimationQueue {
+    queue: VecDeque<Animation>,
+    active: HashMap<u32, Animation>,
+}
+
+impl AnimationQueue {
+    fn new() -> Self {
+        Self {
+            queue: VecDeque::new(),
+            active: HashMap::new(),
+        }
+    }
+    fn animation_for_card(&self, card: &Card) -> Option<&Animation> {
+        self.active.get(&card.id())
+    }
+}
+
+impl Default for AnimationQueue {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+
+#[repr(C)]
+#[derive(bytemuck::Pod, bytemuck::Zeroable, Clone, Copy)]
+struct GpuCard {
+    id_and_value: u64,
+    tableau: u32,
+    stack_idx: u32,
+    animation_id: u32,
+    _pad: u32
 }
