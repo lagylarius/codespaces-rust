@@ -46,27 +46,44 @@ fn get_value(card: Card) -> u32 {
     return get_bits(card.value,VALUE_BITPOS,VALUE_BITSIZE);
 }
 
+
+const MOUSE_TABLEAU_ID = 0;
+const BURN_TABLEAU_ID = 1;
+const DISCARD_PILE_ID = 2;
+
+const RESERVED_TABLEAUS = 3;
+
+
 fn get_world_position_and_size(c: Card, mouse_pos: vec2<f32>) -> vec4<f32> {
     var origin = vec2<f32>(50.0,50.0);
 
+    let t_pos = c.tableau-RESERVED_TABLEAUS;
+    let col = t_pos / 2;
+    var is_bottom = (t_pos % 2);
+
     if (c.tableau == 0) { //Mouse tableau
         origin = mouse_pos;
+        is_bottom = 0;
     }
-    else if (c.tableau == 1) { //Burn tableau
-        origin = vec2<f32>(900.0,400.0);
-    }
-    else if (c.tableau == 0xFFFFFFF0) { //Burnt pile
+    else if (c.tableau == 1) { //Discard pile
         origin = vec2<f32>(1100.0,200.0);
+        is_bottom = 0;
+    }
+    else if (c.tableau == 2) { //Burn tableau
+        origin = vec2<f32>(900.0,400.0);
+        is_bottom = 0;
     }
     else {
-        origin += vec2<f32>(120.0*f32(c.tableau-1u),0.0);
+        origin += vec2<f32>(120.0*f32(col),800.0*f32(is_bottom));
     }
 
-    origin += vec2<f32>(0.0,40.0*f32(c.stack_idx));
-
-    if (c.tableau == 0xFFFFFFF0) {
-        // origin += vec2<f32>(10.0*f32(c.stack_idx%3),2.0*f32(c.stack_idx%4));
+    if (c.tableau == 2) {
+        origin += vec2<f32>(3.0*f32(c.stack_idx) % 7.0,10.0*f32(c.stack_idx)*select(1.0,-1.0,is_bottom==1));
     }
+    else {
+        origin += vec2<f32>(0.0,40.0*f32(c.stack_idx)*select(1.0,-1.0,is_bottom==1));
+    }
+
     
     var size = vec2<f32>(92.0,132.0);
 

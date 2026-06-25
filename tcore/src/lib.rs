@@ -22,7 +22,7 @@ mod game;
 mod gui;
 
 
-use crate::{game::CardArray, gui::{draw_ui, egui_renderer}, passes::{Depth, Dispatch, NoDepth, SelfDispatch}, state::{LoopEvent, State}, utils::load_shader_modules};
+use crate::{game::Game, gui::{draw_ui, egui_renderer}, passes::{Depth, Dispatch, NoDepth, SelfDispatch}, state::{LoopEvent, State}, utils::load_shader_modules};
 
 #[cfg(target_arch = "wasm32")]
 use {
@@ -249,6 +249,7 @@ pub async fn run() {
 
     //Egui
 
+    let mut mousepos: (f32,f32) = (0.0,0.0);
     let mut egui_renderer = egui_renderer::EguiRenderer::new(
         &state.device,
         state.surface_format,
@@ -264,7 +265,9 @@ pub async fn run() {
 
 
     //Game loop
-    let mut g = CardArray::new();
+    let mut g = Game::new();
+
+    let timestamp_0 = Instant::now();
 
 
     let mut last_time = Instant::now();
@@ -286,9 +289,9 @@ pub async fn run() {
                 },
                 LoopEvent::Render => { 
 
-                    g.advance_animations();
+                    g.frame_step();
 
-                    g.flush_to_buffer(&state.queue, &card_data_buffer,&animation_data_buffer);
+                    g.gpu_sync(&state.queue, &card_data_buffer,&animation_data_buffer);
 
                     let canvas_texture = state.start_draw();
                     let depth_texture = state.depth_view();
@@ -306,7 +309,7 @@ pub async fn run() {
                         ],
                         depth);
 
-                    draw_ui(&mut egui_renderer, &state, &canvas_texture,&g);
+                    draw_ui(&mut egui_renderer, &state, &canvas_texture,&g,timestamp_0.elapsed().as_secs_f32(),mousepos);
 
                     state.end_draw();
 
@@ -319,6 +322,7 @@ pub async fn run() {
                     }
                 },
                 LoopEvent::OnMouseMove(x, y) => {
+                    mousepos = (x as f32,y as f32);
                     state.queue.write_buffer(
                         &input_uniform_buffer,
                         0,

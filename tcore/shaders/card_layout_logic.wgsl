@@ -29,7 +29,6 @@ fn cs_main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let c = card_data.cards[gid.x];
 
     if (c.tableau == 0u //Mouse pile
-        // c.tableau == 0xFFFFFFF0 //Burn pile
         ) {return;}
 
     let mouse = input_u.mouse_pos;

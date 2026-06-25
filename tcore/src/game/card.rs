@@ -54,7 +54,7 @@ pub enum Val {
     Queen = 12,
     King  = 13,
     #[fallback]
-    pad0 = 0,
+    Pad0 = 0,
 }
 
 #[bitsize(2)]
@@ -73,7 +73,7 @@ pub enum TableauType {
     Normal = 0,
     Burn = 1,
     #[fallback]
-    pad0 = 2
+    Pad0 = 2
 }
 impl From<TableauType> for Val {
     fn from(t: TableauType) -> Self {
