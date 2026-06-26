@@ -116,19 +116,20 @@ fn resolve_relative_path(base_path: &str, relative_path: &str) -> String {
 //--------------------------------------
 //----Reads one u32 from gpu memory----
 //--------------------------------------
-pub async fn gpu_readback_byte(device: &wgpu::Device, queue: &wgpu::Queue, gpu_buffer: &wgpu::Buffer, readback_buffer: &wgpu::Buffer, read_offset: u64) -> u32 {
+pub async fn gpu_readback_bytes(device: &wgpu::Device, queue: &wgpu::Queue, gpu_buffer: &wgpu::Buffer, readback_buffer: &wgpu::Buffer, read_offset: u64,word_count: u32) -> Vec<u32> {
+    let byte_count = word_count as u64 * 4;
     let mut encoder = device.create_command_encoder(&Default::default());
     encoder.copy_buffer_to_buffer(
         &gpu_buffer,
         read_offset,
         &readback_buffer,
         0,
-        4,
+        byte_count,
     );
 
     queue.submit(Some(encoder.finish()));
 
-    let slice = readback_buffer.slice(..);
+    let slice = readback_buffer.slice(..byte_count);
 
     slice.map_async(wgpu::MapMode::Read, |result| {
         result.unwrap();
@@ -139,13 +140,14 @@ pub async fn gpu_readback_byte(device: &wgpu::Device, queue: &wgpu::Queue, gpu_b
         timeout: None,
     }).unwrap();
 
-    let value: u32 = {
+    let value = {
         let data = slice.get_mapped_range();
-        u32::from_le_bytes(data[0..4].try_into().unwrap())
+        data.chunks_exact(4)
+            .map(|b| u32::from_le_bytes(b.try_into().unwrap()))
+            .collect::<Vec<u32>>()
     };
-
     readback_buffer.unmap();
-    return value;
+    value
 }
 
 #[cfg(target_arch = "wasm32")]

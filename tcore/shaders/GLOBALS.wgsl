@@ -1,9 +1,11 @@
 const WORKGROUP_SIZE = 16;
 
-const SUIT_HEARTS = 0;
-const SUIT_SPADES = 1;
-const SUIT_DIAMONDS = 2;
-const SUIT_CLUBS = 3;
+const SUIT_RESERVED = 0;
+const SUIT_TABLEAU = 1;
+const SUIT_HEARTS = 2;
+const SUIT_SPADES = 3;
+const SUIT_DIAMONDS = 4;
+const SUIT_CLUBS = 5;
 
 const VAL_ACE   = 1;
 const VAL_TWO   = 2;
@@ -19,17 +21,15 @@ const VAL_JACK  = 11;
 const VAL_QUEEN = 12;
 const VAL_KING  = 13;
 
-const TYPE_CARD = 0;
-const TYPE_CARD_HIDDEN = 1;
-const TYPE_CARD_TABLEAU = 2;
-
-const SUIT_BITSIZE: u32 = 2;
+const SUIT_BITSIZE: u32 = 4;
 const VALUE_BITSIZE: u32 = 4;
-const TYPE_BITSIZE: u32 = 2;
+const FLAGS_BITSIZE: u32 = 2;
+
+const FLAG_HIDDEN:      u32 = 1u;
 
 const SUIT_BITPOS: u32 = 0;
-const VALUE_BITPOS: u32 = 2;
-const TYPE_BITPOS: u32 = 6;
+const VALUE_BITPOS: u32 = 4;
+const FLAGS_BITPOS: u32 = 8;
 
 fn get_bits(value: u32, bitpos: u32, bitsize: u32) -> u32 {
     return (value >> bitpos) & ((1u << bitsize) - 1);
@@ -38,8 +38,9 @@ fn get_bits(value: u32, bitpos: u32, bitsize: u32) -> u32 {
 fn get_suit(card: Card) -> u32 {
     return get_bits(card.value,SUIT_BITPOS,SUIT_BITSIZE);
 }
-fn get_type(card: Card) -> u32 {
-    return get_bits(card.value,TYPE_BITPOS,TYPE_BITSIZE);
+fn is_hidden(card: Card) -> bool {
+    let flags = get_bits(card.value, FLAGS_BITPOS, FLAGS_BITSIZE);
+    return (flags & FLAG_HIDDEN) != 0u;
 }
 
 fn get_value(card: Card) -> u32 {
@@ -77,7 +78,7 @@ fn get_world_position_and_size(c: Card, mouse_pos: vec2<f32>) -> vec4<f32> {
         origin += vec2<f32>(120.0*f32(col),800.0*f32(is_bottom));
     }
 
-    if (c.tableau == 2) {
+    if (c.tableau == 1) {
         origin += vec2<f32>(3.0*f32(c.stack_idx) % 7.0,10.0*f32(c.stack_idx)*select(1.0,-1.0,is_bottom==1));
     }
     else {
@@ -111,11 +112,15 @@ fn get_depth(c: Card, max_cards: u32) -> u32 {
 
 struct HoveringBuffer {
     hovering_id: u32,
-    hovering_max_z: u32
+    pos_x: u32,
+    pos_y: u32,
+    hovering_max_z: u32,
 }
 struct AtomicHoveringBuffer {
     hovering_id: u32,
-    hovering_max_z: atomic<u32>
+    pos_x: u32,
+    pos_y: u32,
+    hovering_max_z: atomic<u32>,    
 }
 
 

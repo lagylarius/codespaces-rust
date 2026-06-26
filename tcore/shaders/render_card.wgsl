@@ -133,20 +133,21 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
 
     var suit = get_suit(c);
     var value = get_value(c);
-    if (get_type(c) == TYPE_CARD_HIDDEN) {
+
+    if (is_hidden(c)) {
         suit = 0u;
         value = 0u;
     }
-    if (get_type(c) == TYPE_CARD_TABLEAU) {
-        if (value == 1) {
-            suit = 2u;
-            value = 0u;
-        }
-        else {
-            suit = 1u;
-            value = 0u;
-        }
-    }
+    // if (get_type(c) == TYPE_CARD_TABLEAU) {
+    //     if (value == 1) {
+    //         suit = 2u;
+    //         value = 0u;
+    //     }
+    //     else {
+    //         suit = 1u;
+    //         value = 0u;
+    //     }
+    // }
 
 
     var outline_check_distance = uv_pixel*select(HOVER_OUTLINE_WIDTH,10.0,c.tableau == 0u);
@@ -207,9 +208,9 @@ fn vs_main(
     let c = card_data.cards[instanceIndex];
 
     let on_mouse = c.tableau == 0;
-    let locked = get_type(c) == TYPE_CARD_HIDDEN;
+    let locked = is_hidden(c);
 
-    let base = get_type(c) == TYPE_CARD_TABLEAU;
+    let base = get_suit(c) == SUIT_TABLEAU;
 
     var aabb = get_world_position_and_size(c, input_u.mouse_pos);
 

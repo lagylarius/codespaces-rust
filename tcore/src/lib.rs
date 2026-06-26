@@ -88,7 +88,7 @@ pub async fn run() {
     });
     let hovering_buffer = state.device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("Card Data Buffer"),
-        size: 4*2,
+        size: 4*4,
         usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::COPY_DST,
         mapped_at_creation: false,
     });
@@ -96,7 +96,7 @@ pub async fn run() {
 
     let readback_buffer = state.device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("Readback Buffer"),
-        size: 4,
+        size: 4*3,
         usage: wgpu::BufferUsages::MAP_READ
             | wgpu::BufferUsages::COPY_DST,
         mapped_at_creation: false,
@@ -276,6 +276,20 @@ pub async fn run() {
     State::run( 
         state.event_loop.take().unwrap(),
         move |event| {
+            let words = {
+                #[cfg(target_arch = "wasm32")] {
+                    wasm_bindgen_futures::spawn_local(async move {
+                        utils::gpu_readback_bytes(&state.device, &state.queue, &hovering_buffer, &readback_buffer,0,3)
+                    });
+                }
+                #[cfg(not(target_arch = "wasm32"))] {
+                    pollster::block_on(
+                    utils::gpu_readback_bytes(&state.device, &state.queue, &hovering_buffer, &readback_buffer,0,3)
+                    )
+                }
+            };
+
+            let [id,p_x,p_y] = words[..] else { panic!("Incorrect amount of words on readback buffer") };
             match event {
                 LoopEvent::OnResizing(size) => {
                     if size.width > 0 && size.height > 0 {
@@ -309,7 +323,7 @@ pub async fn run() {
                         ],
                         depth);
 
-                    draw_ui(&mut egui_renderer, &state, &canvas_texture,&g,timestamp_0.elapsed().as_secs_f32(),mousepos);
+                    draw_ui(&mut egui_renderer, &state, &canvas_texture,timestamp_0.elapsed().as_secs_f32(),g.get_point_info(),g.get_str_info(id,p_x as f32,p_y as f32));
 
                     state.end_draw();
 
@@ -330,18 +344,6 @@ pub async fn run() {
                     );
                 },
                 LoopEvent::Click => {
-                    let id = {
-                        #[cfg(target_arch = "wasm32")] {
-                            wasm_bindgen_futures::spawn_local(async move {
-                                utils::gpu_readback_byte(&state.device, &state.queue, &hovering_buffer, &readback_buffer,0)
-                            });
-                        }
-                        #[cfg(not(target_arch = "wasm32"))] {
-                            pollster::block_on(
-                            utils::gpu_readback_byte(&state.device, &state.queue, &hovering_buffer, &readback_buffer,0)
-                            )
-                        }
-                    };
                     g.pick_card(id);
                 },
                 LoopEvent::ActionF1 => {

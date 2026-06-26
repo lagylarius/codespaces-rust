@@ -1,4 +1,4 @@
-use crate::game::{card::{Card, CardType, Suit, Val}};
+use crate::game::card::{Card, CardKind, FaceVal, StandardVal, Suit, TableauVal};
 
 pub type CardSequence<'a> = &'a [&'a [Card]];
 
@@ -79,7 +79,7 @@ pub trait CardSequenceOp<'a, T> {
 impl<'a,S> CardSequenceOp<'a,S> for S where S: SequenceOp<'a,Card>  {
     fn can_be_placed_on<B>(&self, placing_onto: B) -> bool where B: SequenceOp<'a, Card> {
         //Can always place on burnt tableau
-        if placing_onto.flat_index(0).is_some_and(|c| c.tableau_is_burn()) { return true; }
+        if placing_onto.flat_index(0).is_some_and(|c| c.kind() == CardKind::Tableau(TableauVal::Burn)) { return true; }
         let onto_len = placing_onto.flat_len();
         let mut combined: Vec<&[Card]> = placing_onto.slices().collect();
         combined.extend(self.slices());
@@ -106,39 +106,54 @@ impl<'a,S> CardSequenceOp<'a,S> for S where S: SequenceOp<'a,Card>  {
     fn is_valid_card(&self, card: &Card, pos: usize) -> bool {
         let stacked_on = self.flat_index(pos.wrapping_sub(1));
 
-        match card.t() {
-            //Numbered/face cards: Can be stacked on other numbered/face cards, with one number lower and of different color
-            CardType::Card => {
-                //besides kings, which can be stacked on any card that is not numbered/face
-                if let Some(stacked_on) = stacked_on {
-                    let is_king_over_non_card = stacked_on.t() != CardType::Card && card.val() == Val::King;
+        //Hidden cards: Cannot be stacked on any card. Always invalid
+        // Will unhid if they are no cards below this one. 
+        if card.is_hidden() { return false;}
 
-                    let stacked_on_card = stacked_on.t() == CardType::Card;
-                    let is_on_alternate_color = match card.suit() {
-                        Suit::Hearts | Suit::Diamonds => stacked_on.suit() == Suit::Spades || stacked_on.suit() == Suit::Clubs,
-                        Suit::Spades | Suit::Clubs => stacked_on.suit() == Suit::Hearts || stacked_on.suit() == Suit::Diamonds,
-                    };
-                    let is_on_descending = stacked_on.val_numeric() != 0 && card.val_numeric() == stacked_on.val_numeric() - 1;
-                    return is_king_over_non_card || (stacked_on_card && is_on_alternate_color && is_on_descending);
-                }
-                return true;
+        match card.kind() {
+            CardKind::Tableau(tableau_val) => false,
+            CardKind::Joker(joker_val) => false,
+            CardKind::Standard(standard_suit, standard_val) => {
+                if let Some(stacked_on) = stacked_on {
+                    let is_king_over_non_card = !stacked_on.is_numbered_or_face() && matches!(card.kind(), CardKind::Standard(_, StandardVal::Face(FaceVal::King)));
+                    
+                };
+
+                true
             },
-            //Hidden cards: Cannot be stacked on any card. Cannot have any card below. 
-            // Will unhid if they are no cards below this one. 
-            CardType::Hidden => {
-                return false
-            }
-            //Tableau: Cannot be stacked on any card. Cannot have any card below.
-            CardType::Tableau => {
-                if let Some(_) = stacked_on {
-                    return false;
-                }
-                else {
-                    return false;
-                }
-            }
-            CardType::_Pad => false,
         }
+
+
+
+        // match card.suit() {
+        //     //Tableau cards: Cannot be stacked on any card. Always invalid
+        //     Suit::Tableau => {
+        //         if let Some(stacked_on) = stacked_on {
+        //             return false;
+        //         }
+        //         return false;
+        //     }
+        //     //Numbered/face cards: Can be stacked on other numbered/face cards, with one number lower and of different color
+        //     Suit::Hearts | Suit::Spades | Suit::Diamonds | Suit::Clubs => {
+        //         if let Some(stacked_on) = stacked_on {
+        //             //besides kings, which can be stacked on any card that is not numbered/face
+        //             let is_king_over_non_card = !stacked_on.is_numbered_or_face() && matches!(card.kind(), CardKind::Standard(_, StandardVal::Face(FaceVal::King)));
+        //             let is_on_alternate_color = match card.suit() {
+        //                 Suit::Hearts | Suit::Diamonds => stacked_on.suit() == Suit::Spades || stacked_on.suit() == Suit::Clubs,
+        //                 Suit::Spades | Suit::Clubs => stacked_on.suit() == Suit::Hearts || stacked_on.suit() == Suit::Diamonds,
+        //                 _ => false,
+        //             };
+        //             let is_on_descending = stacked_on.val_numeric() != 0 && card.val_numeric() == stacked_on.val_numeric() - 1;
+        //             return is_king_over_non_card || (is_on_alternate_color && is_on_descending);
+        //         }
+
+        //         return true;
+        //     },
+        //     Suit::_Reserved => todo!(),
+        //     Suit::Joker => {
+        //         return false;
+        //     },
+        // }
     }
     fn can_be_picked(&self) -> bool {
         self.is_valid_sequence()

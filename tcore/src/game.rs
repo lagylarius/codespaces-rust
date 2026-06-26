@@ -1,14 +1,16 @@
 mod card;
 mod sequence;
 use card::*;
+use egui::Panel;
 
 mod gpu;
+mod animation;
 
 
 use std::{collections::HashMap, sync::Arc};
 use rand::seq::SliceRandom;
 use rand::rng;
-use crate::game::{gpu::GPUContext, sequence::CardSequenceOp};
+use crate::{game::{animation::AnimationQueue, gpu::GPUContext, sequence::CardSequenceOp}, gui::PanelInfo};
 
 
 
@@ -30,28 +32,39 @@ struct CardPos {
     c: usize,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy,PartialEq, Eq)]
+enum TableauIndexType {
+    Reserved,
+    Top,
+    Bottom
+}
+
+#[derive(Clone, Copy,PartialEq, Eq)]
 struct TableauIndex {
-    is_reserved: bool,
+    t: TableauIndexType,
     index: usize
 }
 
 impl TableauIndex {
-    const MOUSE: TableauIndex = TableauIndex {is_reserved: true, index: MOUSE_TABLEAU_ID};
-    const DISCARD_PILE: TableauIndex = TableauIndex {is_reserved: true, index: DISCARD_PILE_ID};
+    const MOUSE: TableauIndex = TableauIndex {t: TableauIndexType::Reserved, index: MOUSE_TABLEAU_ID};
+    const DISCARD_PILE: TableauIndex = TableauIndex {t: TableauIndexType::Reserved, index: DISCARD_PILE_ID};
+    const BURN_TABLEAU: TableauIndex = TableauIndex {t: TableauIndexType::Reserved, index: BURN_TABLEAU_ID};
 
     pub fn tableau_index(&self) -> usize {
-        if self.is_reserved {
-            self.index
-        } else {
-            RESERVED_TABLEAUS + (self.index * 2)
+        match self.t {
+            TableauIndexType::Reserved => self.index,
+            TableauIndexType::Top => RESERVED_TABLEAUS + (self.index * 2),
+            TableauIndexType::Bottom => RESERVED_TABLEAUS + (self.index * 2) + 1,
         }
     }
-    fn non_reserved(index: usize) -> Self {
-        Self { is_reserved: false, index: index }
+    fn bottom(index: usize) -> Self {
+        Self { t: TableauIndexType::Bottom, index: index }
+    }
+    fn top(index: usize) -> Self {
+        Self { t: TableauIndexType::Top, index: index }
     }
     fn reserved(index: usize) -> Self {
-        Self { is_reserved: true, index: index }
+        Self { t: TableauIndexType::Reserved, index: index }
     }
 }
 
@@ -64,8 +77,8 @@ impl TableauIndex {
 pub struct Game {
     points: u32,
     objective: Objective,
-    tableaus: Vec<Vec<Card>>,
-    shop_tableaus: Vec<Vec<Card>>,
+    top_tableaus: Vec<Vec<Card>>,
+    bottom_tableaus: Vec<Vec<Card>>,
     reserved_tableaus: [Vec<Card>;RESERVED_TABLEAUS],
     animation_queue: AnimationQueue
 }
@@ -73,14 +86,14 @@ pub struct Game {
 impl Game {
     fn update(&mut self, tableau : TableauIndex) {
         if self.get_tableau(tableau).is_empty() {return;}
-        if self.get_tableau(tableau).first().unwrap().tableau_is_burn() {
+        if self.get_tableau(tableau).first().unwrap().kind() == CardKind::Tableau(TableauVal::Burn) {
             let mut removed: Vec<Card> = self.get_tableau_mut(tableau).drain(1..).collect();
 
             let count = removed.len();
 
             //Burning tableau: -15p
-            //Will burn cards. Cards burnt will give points if you burn at least 3 at the same time
-            let mut points: i32 = -15;
+            //Will burn cards.
+            let mut points: i32 = -10;
             log_print!("Burning {} cards",removed.len());
             for c in removed.iter() {
                 log_print!("+{} points",c.val_numeric());
@@ -99,7 +112,6 @@ impl Game {
 
             match self.objective.burn(count as u32) {
                 ObjectiveStatus::Completed => {
-
                 },
                 ObjectiveStatus::Failed => {
                     panic!("game over")
@@ -110,7 +122,7 @@ impl Game {
             }
         }
 
-        if self.get_tableau(tableau).last().unwrap().t() == CardType::Hidden {
+        if self.get_tableau(tableau).last().unwrap().is_hidden() {
             self.get_tableau_mut(tableau).last_mut().unwrap().unhide();
         }
     }
@@ -123,7 +135,6 @@ impl Game {
             return;
         };
         if self.reserved_tableaus[MOUSE_TABLEAU_ID].is_empty() {
-            let pos = self.get_pos_by_id(id).unwrap();
             if (&self.get_tableau(pos.t)[pos.c..]).can_be_picked() {
                 self.move_tableau_pos_onwards(pos.t, pos.c, TableauIndex::MOUSE);
                 self.update(pos.t);
@@ -138,15 +149,19 @@ impl Game {
     }
 
     fn initialize(&mut self) {
-        // self.add_c(Card::new_burn_tableau(),1);
-        self.reserved_tableaus[BURN_TABLEAU_ID].push(Card::new_burn_tableau());
+        self.get_tableau_mut(TableauIndex::BURN_TABLEAU).push(Card::new_tableau(TableauVal::Burn));
         for i in 0..6 {
-            self.add_c(Card::new_tableau(),i as u32);
+            self.add_c(Card::new_tableau(TableauVal::Normal),TableauIndex::top(i ));
+        }
+        for i in 0..4 {
+            self.add_c(Card::new_tableau(TableauVal::Shop),TableauIndex::bottom(i ));
+            // self.add_c(Card::new_card(Suit::Joker, value))
+            self.add_c(Card::new_common(CardKind::Joker(JokerVal::Low)),TableauIndex::bottom(i ));
         }
         let mut deck: Vec<Card> = Vec::new();
 
-        for suit in SUITS {
-            for val in VALS {
+        for suit in STANDARD_SUITS {
+            for val in STANDARD_VALS {
                 let mut c = Card::new_card(suit, val);
                 c.hide();
                 deck.push(c);
@@ -165,51 +180,80 @@ impl Game {
     //#--- if it exists (None otherwise)
     //###############################################################
     fn get_pos_by_id(&self, id: u32) -> Option<CardPos> {
-        let r = self.tableaus.iter().enumerate().find_map(|(t_idx, t)| {
+        let r = self.top_tableaus.iter().enumerate().find_map(|(t_idx, t)| {
             t.iter().position(|c| c.id() == id)
                 .map(|c_idx| {
-                    let t_index = TableauIndex::non_reserved(t_idx);
+                    let t_index = TableauIndex::top(t_idx);
                     CardPos {t: t_index, c: c_idx }
                 })
         });
-        if !r.is_none() {
-            r
+        if r.is_some() {
+            return r;
+        }
+        let r = self.bottom_tableaus.iter().enumerate().find_map(|(t_idx, t)| {
+            t.iter().position(|c| c.id() == id)
+                .map(|c_idx| {
+                    let t_index = TableauIndex::bottom(t_idx);
+                    CardPos {t: t_index, c: c_idx }
+                })
+        });
+        if r.is_some() {
+            return r;
         }
         else {
             self.reserved_tableaus.iter().enumerate().find_map(|(t_idx, t)| {
                 t.iter().position(|c| c.id() == id)
                     .map(|c_idx| {
                         let t_index = TableauIndex::reserved(t_idx);
-                        CardPos {t: t_index, c: c_idx }
+                        return CardPos {t: t_index, c: c_idx };
                     })
             })
         }
-
     }
 
-    fn add_c(&mut self, card: Card, tableau: u32) {
-        if self.tableaus.len() <= tableau as usize {
-            self.tableaus.resize_with(tableau as usize + 1, Vec::new);
+    fn add_c(&mut self, card: Card, ti: TableauIndex) {
+
+
+        match ti.t {
+            TableauIndexType::Reserved => {
+                if self.reserved_tableaus.len() <= ti.index as usize {
+                    panic!("Incorrect add to reserved tableau on index {}, which is past index {}",ti.index,self.reserved_tableaus.len());
+                }
+            },
+            TableauIndexType::Top => {
+                if self.top_tableaus.len() <= ti.index as usize {
+                    self.top_tableaus.resize_with(ti.index as usize + 1, Vec::new);
+                }
+            },
+            TableauIndexType::Bottom => {
+                if self.bottom_tableaus.len() <= ti.index as usize {
+                    self.bottom_tableaus.resize_with(ti.index as usize + 1, Vec::new);
+                }
+            },
         }
 
-        self.tableaus[tableau as usize].push(card);
+        let tableaus: &mut [Vec<Card>] = match ti.t {
+            TableauIndexType::Reserved => &mut self.reserved_tableaus,
+            TableauIndexType::Top => &mut self.top_tableaus,
+            TableauIndexType::Bottom => &mut self.bottom_tableaus,
+        };
+
+        tableaus[ti.index].push(card);
     }
 
     fn get_tableau(&self, ti: TableauIndex) -> &Vec<Card> {
-        if !ti.is_reserved {
-            &self.tableaus[ti.index]
-        }
-        else {
-            &self.reserved_tableaus[ti.index]
+        match ti.t {
+            TableauIndexType::Reserved => &self.reserved_tableaus[ti.index],
+            TableauIndexType::Top => &self.top_tableaus[ti.index],
+            TableauIndexType::Bottom => &self.bottom_tableaus[ti.index],
         }
     }
 
     fn get_tableau_mut(&mut self, ti: TableauIndex) -> &mut Vec<Card> {
-        if !ti.is_reserved {
-            &mut self.tableaus[ti.index]
-        }
-        else {
-            &mut self.reserved_tableaus[ti.index]
+        match ti.t {
+            TableauIndexType::Reserved => &mut self.reserved_tableaus[ti.index],
+            TableauIndexType::Top => &mut self.top_tableaus[ti.index],
+            TableauIndexType::Bottom => &mut self.bottom_tableaus[ti.index],
         }
     }
 
@@ -259,10 +303,10 @@ impl Game {
                 else {
                     card.hide();
                 }
-                self.add_c(card, t as u32);
+                self.add_c(card, TableauIndex::top(t));
             }
 
-            self.update(TableauIndex::non_reserved(t));
+            self.update(TableauIndex::top(t));
         }
     }
 
@@ -271,8 +315,8 @@ impl Game {
         let mut s = Self {
             points: 0,
             objective: Objective::new(),
-            tableaus: vec![vec![]; RESERVED_TABLEAUS],
-            shop_tableaus: vec![vec![];3],
+            top_tableaus: vec![vec![]; RESERVED_TABLEAUS],
+            bottom_tableaus: vec![vec![];3],
             reserved_tableaus: [vec![],vec![],vec![]],
             animation_queue: AnimationQueue::new()
         };
@@ -291,8 +335,12 @@ impl Game {
             gpu_context.push_cards(tableau, TableauIndex::reserved(tableau_idx).tableau_index() as u32,  &self.animation_queue);
         }
 
-        for (tableau_idx, tableau) in self.tableaus.iter().enumerate() {
-            gpu_context.push_cards(tableau, TableauIndex::non_reserved(tableau_idx).tableau_index() as u32,  &self.animation_queue);
+        for (tableau_idx, tableau) in self.top_tableaus.iter().enumerate() {
+            gpu_context.push_cards(tableau, TableauIndex::top(tableau_idx).tableau_index() as u32,  &self.animation_queue);
+        }
+
+        for (tableau_idx, tableau) in self.bottom_tableaus.iter().enumerate() {
+            gpu_context.push_cards(tableau, TableauIndex::bottom(tableau_idx).tableau_index() as u32,  &self.animation_queue);
         }
 
         gpu_context.flush_to_gpu(queue, buffer, animation_buffer);
@@ -302,8 +350,28 @@ impl Game {
         (self.points,self.objective.cards,self.objective.burns)
     }
 
-    pub fn get_str_info(&self) -> Option<Vec<String>> {
-        return None;
+    pub fn get_str_info(&self, id: u32, pos_x: f32,pos_y: f32) -> Option<PanelInfo> {
+        if id == 0xFFFFFFFF { return None;}
+        let Some(pos) = self.get_pos_by_id(id) else {
+            log_print!("Unknown card with id {}!",id);
+            return None;
+        };
+
+        let card = self.get_tableau(pos.t).get(pos.c).unwrap();
+        let mut info = card.get_info();
+        if pos.t == TableauIndex::DISCARD_PILE {
+            info = vec![info[0].clone(),
+                    "This card is on the discard pile".to_string(),
+                    "It cannot be picked up or interacted with".to_string()];
+        }
+
+        return Some(
+            PanelInfo {
+                    pos_x, 
+                    pos_y, 
+                    text: info
+            }
+        );
     }
 }
 
@@ -346,65 +414,5 @@ impl Objective {
 
         return ObjectiveStatus::Ongoing
 
-    }
-}
-
-
-
-//###############################################################
-//#--- Animations
-//###############################################################
-struct Animation {
-    previous_tableau: u32,
-    previous_stack_idx: u32,
-    t: f32,
-    _pad: f32
-}
-struct AnimationQueue {
-    active: HashMap<u32, Animation>,
-}
-
-impl AnimationQueue {
-    fn new() -> Self {
-        Self {
-            active: HashMap::new(),
-        }
-    }
-    fn new_animation_batch<'a,I>(&mut self, iter: I, tableau_id: u32) where I: Iterator<Item = (usize, &'a Card)>{
-        let mut current_t = 0.0;
-        for (i,c) in iter {
-            self.active.insert(c.id(), 
-            Animation { 
-                previous_tableau: tableau_id, 
-                previous_stack_idx: i as u32,
-                t: current_t,
-                _pad: 0.0,
-            });
-            current_t -= 0.2;
-        }
-    }
-    fn new_animation(&mut self, card: &Card, previous_tableau: u32, previous_stack_idx: u32) {
-        self.active.insert(card.id(), 
-            Animation { 
-                previous_tableau: previous_tableau, 
-                previous_stack_idx: previous_stack_idx,
-                t: 0.0,
-                _pad: 0.0,
-            });
-    }
-    fn animation_for_card(&self, card: &Card) -> Option<&Animation> {
-        self.active.get(&card.id())
-    }
-    fn advance_animations(&mut self) {
-        self.active.retain(|_, v| {
-            v.t += 0.1;
-            v.t < 1.0
-        });
-    }
-}
-
-impl Default for AnimationQueue {
-    fn default() -> Self {
-        Self::new()
     }
 }

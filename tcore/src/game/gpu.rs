@@ -2,7 +2,6 @@ use std::sync::Arc;
 
 use crate::game::{AnimationQueue, card::Card};
 
-
 pub struct GPUContext {
     flat: Vec<GpuCard>,
     total_cards: u32,
