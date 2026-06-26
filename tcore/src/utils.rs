@@ -116,7 +116,7 @@ fn resolve_relative_path(base_path: &str, relative_path: &str) -> String {
 //--------------------------------------
 //----Reads one u32 from gpu memory----
 //--------------------------------------
-pub async fn gpu_readback_bytes(device: &wgpu::Device, queue: &wgpu::Queue, gpu_buffer: &wgpu::Buffer, readback_buffer: &wgpu::Buffer, read_offset: u64,word_count: u32) -> Vec<u32> {
+pub async fn gpu_readback_bytes(device: Arc<wgpu::Device>, queue: Arc<wgpu::Queue>, gpu_buffer: wgpu::Buffer, readback_buffer: wgpu::Buffer, read_offset: u64,word_count: u32) -> Vec<u32> {
     let byte_count = word_count as u64 * 4;
     let mut encoder = device.create_command_encoder(&Default::default());
     encoder.copy_buffer_to_buffer(
@@ -131,14 +131,21 @@ pub async fn gpu_readback_bytes(device: &wgpu::Device, queue: &wgpu::Queue, gpu_
 
     let slice = readback_buffer.slice(..byte_count);
 
-    slice.map_async(wgpu::MapMode::Read, |result| {
-        result.unwrap();
-    });
+    //slice.map_async(wgpu::MapMode::Read, |result| {
+    //    result.unwrap();
+    //});
+    //device.poll(wgpu::PollType::Wait {
+    //    submission_index: None,
+    //    timeout: None,
+    //}).unwrap();
 
-    device.poll(wgpu::PollType::Wait {
-        submission_index: None,
-        timeout: None,
-    }).unwrap();
+    //on wasm, polling doesn't work the same way. The buffer map needs to be awaited properly.
+    let (tx, rx) = futures::channel::oneshot::channel();
+    slice.map_async(wgpu::MapMode::Read, move |result| {
+        tx.send(result).ok();
+    });
+    rx.await.unwrap().unwrap();
+
 
     let value = {
         let data = slice.get_mapped_range();

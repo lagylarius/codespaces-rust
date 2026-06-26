@@ -23,7 +23,7 @@ mod gui;
 
 
 use crate::{game::Game, gui::{draw_ui, egui_renderer}, passes::{Depth, Dispatch, NoDepth, SelfDispatch}, state::{LoopEvent, State}, utils::load_shader_modules};
-
+use std::future::Future;
 #[cfg(target_arch = "wasm32")]
 use {
     wasm_bindgen::prelude::*,
@@ -45,6 +45,7 @@ use wgpu::util::DeviceExt;
 
 #[cfg(target_arch = "wasm32")]
 use web_time::Instant;
+use std::{pin::Pin, task::{Context, Poll}};
 #[cfg(not(target_arch = "wasm32"))]
 use std::time::Instant;
 
@@ -273,21 +274,37 @@ pub async fn run() {
     let mut last_time = Instant::now();
     let mut frame_count = 0u32;
 
+    // Async readback stuff
+    let mut words_future = Box::pin(utils::gpu_readback_bytes(
+        state.device.clone(), state.queue.clone(),
+        hovering_buffer.clone(), readback_buffer.clone(), 0, 3,
+    ));
+    let waker = noop_waker::noop_waker();
+    let mut cx = Context::from_waker(&waker);
+    let mut words: Vec<u32> = vec![0xFFFFFFFF,0,0];
     State::run( 
         state.event_loop.take().unwrap(),
         move |event| {
-            let words = {
-                #[cfg(target_arch = "wasm32")] {
-                    wasm_bindgen_futures::spawn_local(async move {
-                        utils::gpu_readback_bytes(&state.device, &state.queue, &hovering_buffer, &readback_buffer,0,3)
-                    });
-                }
-                #[cfg(not(target_arch = "wasm32"))] {
-                    pollster::block_on(
-                    utils::gpu_readback_bytes(&state.device, &state.queue, &hovering_buffer, &readback_buffer,0,3)
-                    )
-                }
-            };
+            if let Poll::Ready(result) = words_future.as_mut().poll(&mut cx) {
+                words = result;
+                words_future = Box::pin(utils::gpu_readback_bytes(
+                    state.device.clone(), state.queue.clone(),
+                    hovering_buffer.clone(), readback_buffer.clone(), 0, 3,
+                ));
+            }
+
+            //let words = {
+            //    #[cfg(target_arch = "wasm32")] {
+            //        wasm_bindgen_futures::spawn_local(async move {
+            //            utils::gpu_readback_bytes(&state.device, &state.queue, &hovering_buffer, &readback_buffer,0,3)
+            //        })
+            //    }
+            //    #[cfg(not(target_arch = "wasm32"))] {
+            //        pollster::block_on(
+            //        utils::gpu_readback_bytes(&state.device, &state.queue, &hovering_buffer, &readback_buffer,0,3)
+            //        )
+            //    }
+            //};
 
             let [id,p_x,p_y] = words[..] else { panic!("Incorrect amount of words on readback buffer") };
             match event {

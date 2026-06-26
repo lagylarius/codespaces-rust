@@ -138,7 +138,7 @@ struct CardArray {
     total: u32,
     total_workgroups: u32,
     _pad1: u32,
-    _pad2: atomic<u32>,
+    _pad2: u32,
     cards: array<Card>
 }
 
