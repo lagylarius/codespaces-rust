@@ -42,7 +42,7 @@ impl AnimationQueue {
     }
     pub fn advance_animations(&mut self) {
         self.active.retain(|_, v| {
-            v.t += 0.1;
+            v.t += 0.2;
             v.t < 1.0
         });
     }

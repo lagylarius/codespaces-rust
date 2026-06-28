@@ -46,7 +46,7 @@ pub fn draw_ui(egui_renderer: &mut EguiRenderer, state: &State, canvas: &Texture
         
         let screen_width = ctx.screen_rect().width();
         // let max_width = screen_width * 0.33;
-        let max_width = (screen_width - drawpos.0).min(screen_width * 0.33);
+        let max_width = (screen_width - drawpos.0).max(1.0).min(screen_width * 0.33);
         egui::Window::new("Info panel")
             .fixed_pos(drawpos)
             .collapsible(false)

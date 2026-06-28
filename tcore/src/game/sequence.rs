@@ -1,16 +1,223 @@
-use crate::game::card::{Card, CardKind, FaceVal, StandardVal, Suit, TableauVal};
+use std::collections::VecDeque;
 
-pub type CardSequence<'a> = &'a [&'a [Card]];
+use crate::game::card::{Card, card_kind::{CardKind, JLevel, JokerKind}};
 
+enum DefaultCard {
+    Def,
+    A
+}
+
+pub struct CardSequence<'a> {
+    sequence: Vec<&'a [Card]>,
+    default: Card
+}
+
+pub struct CardSequenceMut<'a> {
+    sequence: Vec<&'a mut [Card]>,
+    default: Card
+}
+
+pub trait AsCardSequence<'a> {
+    fn as_sequence(self, default: Card) -> CardSequence<'a>;
+}
+pub trait AsMutCardSequence<'a> {
+    fn as_mut_sequence(self, default: Card) -> CardSequenceMut<'a>;
+}
+
+impl<'a> AsCardSequence<'a> for &'a [Card] {
+    fn as_sequence(self, default: Card) -> CardSequence<'a> {
+        CardSequence { sequence: vec![self], default: default }
+    }
+}
+impl<'a> AsMutCardSequence<'a> for &'a mut [Card] {
+    fn as_mut_sequence(self, default: Card) -> CardSequenceMut<'a> {
+        CardSequenceMut { sequence: vec![self], default: default }
+    }
+}
+
+
+impl<'a> CardSequenceMut<'a> {
+    // pub fn get_card_at(&mut self, idx: usize) -> &mut Card {
+    //     if let Some(c) = self.sequence.as_mut_slice().flat_index(idx) {
+    //         return c
+    //     }
+    //     return &mut self.default;
+    // }
+    pub fn get_card_at(&self, idx: usize) -> &Card {
+        let mut offset = idx;
+        for slice in &self.sequence {
+            if offset < slice.len() {
+                return &slice[offset];
+            }
+            offset -= slice.len();
+        }
+        &self.default
+    }
+    pub fn get_copy_card_at(&self, idx: usize) -> Card {
+        if let Some(c) = self.sequence.as_slice().flat_index(idx) {
+            return c.clone();
+        }
+        return self.default.clone();
+    }
+    pub fn set_card_at(&mut self, idx: usize, card: Card) {
+        if let Some(c) = self.sequence.as_mut_slice().flat_index_mut(idx) {
+            *c = card;
+        }
+        self.default = card;
+    }
+    fn update(&mut self, mut to_update_next: VecDeque<usize>) {
+        for _ in 0..1000 {
+            let Some(pos) = to_update_next.pop_front() else {
+                return;
+            };
+            let mut card = self.get_copy_card_at(pos);
+
+            let next = card.update(self, pos);
+
+            to_update_next.extend(next);
+
+            self.set_card_at(pos, card);
+        }
+    }
+    pub fn update_at(&mut self, idx: usize) {
+        let mut to_update_next: VecDeque<usize> = VecDeque::new();
+        to_update_next.push_back(idx);
+        to_update_next.push_back(idx+1);
+        self.update(to_update_next);
+    }
+    pub fn update_end(&mut self) {
+        let mut to_update_next: VecDeque<usize> = VecDeque::new();
+        to_update_next.push_back(self.sequence.as_slice().flat_len()-1);
+        self.update(to_update_next);
+    }
+    pub fn is_last_position(&self, idx: usize) -> bool {
+        idx == self.sequence.as_slice().flat_len()-1
+    }
+    pub fn get_stacked_on_from(&self, pos: usize) -> &Card {
+        let stacked_on = self.get_card_at(pos.wrapping_sub(1));
+        // Ghost cards: Cards stakced on them behave as if they were stacked on the one on top
+        if stacked_on.ghost() {
+            return self.get_card_at(pos.wrapping_sub(2));
+        }
+        return stacked_on;
+    }
+}
+
+impl<'a> CardSequence<'a> {
+    fn is_valid_sequence(&self) -> bool {
+        for (i,card) in self.sequence.as_slice().flat_enumerate() {
+            if !card.is_valid(self, i) {
+                return false;
+            }
+        }
+        true
+    }
+    pub fn is_valid_sequence_from(&self, from: usize) -> bool {
+        log_print!("{}",self.sequence.as_slice().flat_len());
+        if self.sequence.as_slice().flat_len() == 1 {return true;}
+        assert!(from < self.sequence.as_slice().flat_len(), "from index {} out of bounds (len {})", from, self.sequence.as_slice().flat_len());
+        for (i,card) in self.sequence.as_slice().flat_enumerate().skip(from) {
+            if !card.is_valid(self, i) {
+                return false;
+            }
+        }
+        true
+    }
+    pub fn can_be_placed_on(self, mut placing_onto: Self) -> bool {
+        let onto_len = placing_onto.sequence.as_slice().flat_len();
+
+        placing_onto.sequence.extend(self.sequence.iter());
+        placing_onto.is_valid_sequence_from(onto_len)
+    }
+    pub fn get_card_at(&self, idx: usize) -> &Card {
+        if let Some(c) = self.sequence.as_slice().flat_index(idx) {
+            return c
+        }
+        return &self.default;
+    }
+    pub fn get_stacked_on_from(&self, pos: usize) -> &Card {
+        let stacked_on = self.get_card_at(pos.wrapping_sub(1));
+        // Ghost cards: Cards stakced on them behave as if they were stacked on the one on top
+        if stacked_on.ghost() {
+            return self.get_card_at(pos.wrapping_sub(2));
+        }
+        return stacked_on;
+    }
+}
+
+
+trait SequenceOpMut<'a, T: 'a> {
+    fn flat_index_mut(&mut self, i: usize) -> Option<&mut T>;
+}
+
+impl <'a,T> SequenceOpMut<'a,T> for &mut [&'a mut [T]] {
+    fn flat_index_mut(&mut self, i: usize) -> Option<&mut T> {
+        let mut offset = i;
+        for slice in self.iter_mut() {
+            if offset < slice.len() {
+                return slice.get_mut(offset);
+            }
+            offset -= slice.len();
+        }
+        None
+    }
+}
+
+trait SequenceOpNoLifetime<'a, T: 'a> {
+    //IMPORTANT: Return type has lifetime 'self version. 
+    //This reference can only be used as long as sequence lives,
+    //NOT as long as the slice of cards lives
+    // fn flat_last(&mut self) -> Option<&mut T>;
+    fn flat_index(&self, i: usize) -> Option<& T>;
+    fn flat_len(&self) -> usize;
+}
+
+impl <'a,T> SequenceOpNoLifetime<'a,T> for &[&'a mut [T]] {
+    fn flat_len(&self) -> usize {
+        self.iter().map(|s| s.len()).sum()
+    }
+    fn flat_index(&self, i: usize) -> Option<& T> {
+        let mut offset = i;
+        for slice in *self {
+            if offset < slice.len() {
+                return slice.get(offset);
+            }
+            offset -= slice.len();
+        }
+        None
+    }
+}
+
+// impl<'a, T> SequenceOpMut<'a, T> for &mut [&'a mut [T]] {
+//     fn flat_last(&mut self) -> Option<&mut T> {
+//         if let Some(slice) = self.last_mut() {
+//             return slice.last_mut();
+//         }
+//         None
+//     }
+//     fn flat_index(&mut self, i: usize) -> Option<&mut T> {
+//         let mut offset = i;
+//         for slice in self.iter_mut() {
+//             if offset < slice.len() {
+//                 return slice.get_mut(offset);
+//             }
+//             offset -= slice.len();
+//         }
+//         None
+//     }
+//     fn flat_len(&self) -> usize {
+//         self.iter().map(|s| s.len()).sum()
+//     }
+// }
 
 
 trait SequenceOp<'a, T: 'a> {
     fn flat_len(&self) -> usize;
+    fn flat_last(&self) -> Option<&'a T>;
     fn flat_index(&self, i: usize) -> Option<&'a T>;
     fn flat_enumerate(&self) -> impl Iterator<Item = (usize, &'a T)>;
     fn slices(&self) -> impl Iterator<Item = &'a [T]>;
 }
-
 impl<'a,T> SequenceOp<'a,T> for &[&'a [T]] {
     fn flat_len(&self) -> usize {
         self.iter().map(|s| s.len()).sum()
@@ -36,126 +243,12 @@ impl<'a,T> SequenceOp<'a,T> for &[&'a [T]] {
     fn slices(&self) -> impl Iterator<Item = &'a [T]> {
         self.iter().copied()
     }
-}
-
-impl<'a,T> SequenceOp<'a,T> for &'a [T] {
-    fn flat_len(&self) -> usize {
-        self.len()
-    }
-    fn flat_index(&self, i: usize) -> Option<&'a T> {
-        self.get(i)
-    }
-    fn flat_enumerate(&self) -> impl Iterator<Item = (usize, &'a T)> {
-        self.iter().enumerate()
-    }
-    fn slices(&self) -> impl Iterator<Item = &'a [T]> {
-        std::iter::once(*self)
-    }
-}
-
-pub trait CardSequenceOp<'a, T> {
-    fn is_valid_sequence_from(&self,from: usize) -> bool;
-    fn is_valid_sequence(&self) -> bool;
-    fn is_valid_card(&self, card: &Card, pos: usize) -> bool;
-    fn can_be_picked(&self) -> bool;
-    fn can_be_placed_on<B>(&self, placing_onto: B) -> bool where B: SequenceOp<'a, Card>;
-}
-
-// pub fn can_be_placed_on<'a, A, B>(being_placed: A, placing_onto: B) -> bool
-//     where 
-//         A: SequenceOp<'a, Card>, 
-//         B: SequenceOp<'a, Card>,
-//     {
-//     if placing_onto.flat_index(0).is_some_and(|c| {c.tableau_is_burn()}) {return true;}
-
-//     let onto_len = placing_onto.flat_len();
-
-//     let mut combined: Vec<&[Card]> = placing_onto.slices().collect();
-//     combined.extend(being_placed.slices());
-//     let combined: &[&[Card]] = combined.as_slice();
-//     combined.is_valid_sequence_from(onto_len)
-// }
-
-impl<'a,S> CardSequenceOp<'a,S> for S where S: SequenceOp<'a,Card>  {
-    fn can_be_placed_on<B>(&self, placing_onto: B) -> bool where B: SequenceOp<'a, Card> {
-        //Can always place on burnt tableau
-        if placing_onto.flat_index(0).is_some_and(|c| c.kind() == CardKind::Tableau(TableauVal::Burn)) { return true; }
-        let onto_len = placing_onto.flat_len();
-        let mut combined: Vec<&[Card]> = placing_onto.slices().collect();
-        combined.extend(self.slices());
-        let combined: &[&[Card]] = combined.as_slice();
-        combined.is_valid_sequence_from(onto_len)
-    }
-    fn is_valid_sequence_from(&self, from: usize) -> bool {
-        assert!(from < self.flat_len(), "from index {} out of bounds (len {})", from, self.flat_len());
-        for (i,card) in self.flat_enumerate().skip(from) {
-            if !self.is_valid_card(card, i) {
-                return false;
+    fn flat_last(&self) -> Option<&'a T> {
+        if let Some(slice) =  self.last() {
+            if let Some(last) = slice.last() {
+                return Some(last);
             }
         }
-        true
-    }
-    fn is_valid_sequence(&self) -> bool {
-        for (i,card) in self.flat_enumerate() {
-            if !self.is_valid_card(card, i) {
-                return false;
-            }
-        }
-        true
-    }
-    fn is_valid_card(&self, card: &Card, pos: usize) -> bool {
-        let stacked_on = self.flat_index(pos.wrapping_sub(1));
-
-        //Hidden cards: Cannot be stacked on any card. Always invalid
-        // Will unhid if they are no cards below this one. 
-        if card.is_hidden() { return false;}
-
-        match card.kind() {
-            CardKind::Tableau(tableau_val) => false,
-            CardKind::Joker(joker_val) => false,
-            CardKind::Standard(standard_suit, standard_val) => {
-                if let Some(stacked_on) = stacked_on {
-                    let is_king_over_non_card = !stacked_on.is_numbered_or_face() && matches!(card.kind(), CardKind::Standard(_, StandardVal::Face(FaceVal::King)));
-                    
-                };
-
-                true
-            },
-        }
-
-
-
-        // match card.suit() {
-        //     //Tableau cards: Cannot be stacked on any card. Always invalid
-        //     Suit::Tableau => {
-        //         if let Some(stacked_on) = stacked_on {
-        //             return false;
-        //         }
-        //         return false;
-        //     }
-        //     //Numbered/face cards: Can be stacked on other numbered/face cards, with one number lower and of different color
-        //     Suit::Hearts | Suit::Spades | Suit::Diamonds | Suit::Clubs => {
-        //         if let Some(stacked_on) = stacked_on {
-        //             //besides kings, which can be stacked on any card that is not numbered/face
-        //             let is_king_over_non_card = !stacked_on.is_numbered_or_face() && matches!(card.kind(), CardKind::Standard(_, StandardVal::Face(FaceVal::King)));
-        //             let is_on_alternate_color = match card.suit() {
-        //                 Suit::Hearts | Suit::Diamonds => stacked_on.suit() == Suit::Spades || stacked_on.suit() == Suit::Clubs,
-        //                 Suit::Spades | Suit::Clubs => stacked_on.suit() == Suit::Hearts || stacked_on.suit() == Suit::Diamonds,
-        //                 _ => false,
-        //             };
-        //             let is_on_descending = stacked_on.val_numeric() != 0 && card.val_numeric() == stacked_on.val_numeric() - 1;
-        //             return is_king_over_non_card || (is_on_alternate_color && is_on_descending);
-        //         }
-
-        //         return true;
-        //     },
-        //     Suit::_Reserved => todo!(),
-        //     Suit::Joker => {
-        //         return false;
-        //     },
-        // }
-    }
-    fn can_be_picked(&self) -> bool {
-        self.is_valid_sequence()
+        return None;
     }
 }

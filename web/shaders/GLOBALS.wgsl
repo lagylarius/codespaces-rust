@@ -1,61 +1,90 @@
 const WORKGROUP_SIZE = 16;
 
-const SUIT_HEARTS = 0x00;
-const SUIT_SPADES = 0x10;
-const SUIT_DIAMONDS = 0x20;
-const SUIT_CLUBS = 0x30;
+const SUIT_RESERVED = 0;
+const SUIT_TABLEAU = 1;
+const SUIT_HEARTS = 2;
+const SUIT_SPADES = 3;
+const SUIT_DIAMONDS = 4;
+const SUIT_CLUBS = 5;
 
-const VAL_ACE   = 0x01;
-const VAL_TWO   = 0x02;
-const VAL_THREE = 0x03;
-const VAL_FOUR  = 0x04;
-const VAL_FIVE  = 0x05;
-const VAL_SIX   = 0x06;
-const VAL_SEVEN = 0x07;
-const VAL_EIGHT = 0x08;
-const VAL_NINE  = 0x09;
-const VAL_TEN   = 0x0A;
-const VAL_JACK  = 0x0B;
-const VAL_QUEEN = 0x0C;
-const VAL_KING  = 0x0D;
+const VAL_ACE   = 1;
+const VAL_TWO   = 2;
+const VAL_THREE = 3;
+const VAL_FOUR  = 4;
+const VAL_FIVE  = 5;
+const VAL_SIX   = 6;
+const VAL_SEVEN = 7;
+const VAL_EIGHT = 8;
+const VAL_NINE  = 9;
+const VAL_TEN   = 10;
+const VAL_JACK  = 11;
+const VAL_QUEEN = 12;
+const VAL_KING  = 13;
 
-const TYPE_CARD = 0x100;
-const TYPE_CARD_HIDDEN = 0x200;
-const TYPE_CARD_TABLEAU = 0x300;
+const SUIT_BITSIZE: u32 = 4;
+const VALUE_BITSIZE: u32 = 4;
+const FLAGS_BITSIZE: u32 = 2;
 
-const VALUE_MASK: u32 = 0x00Fu;
-const SUIT_MASK: u32 =  0x0F0u;
-const TYPE_MASK: u32 =  0xF00u;
+const FLAG_HIDDEN:      u32 = 1u;
+
+const SUIT_BITPOS: u32 = 0;
+const VALUE_BITPOS: u32 = 4;
+const FLAGS_BITPOS: u32 = 8;
+
+fn get_bits(value: u32, bitpos: u32, bitsize: u32) -> u32 {
+    return (value >> bitpos) & ((1u << bitsize) - 1);
+}
 
 fn get_suit(card: Card) -> u32 {
-    return (card.value & SUIT_MASK) >> 4;
+    return get_bits(card.value,SUIT_BITPOS,SUIT_BITSIZE);
 }
-fn get_suit_numeric(card: Card) -> u32 {
-    return (card.value & SUIT_MASK) >> 4;
-}
-
-fn get_type(card: Card) -> u32 {
-    return card.value & TYPE_MASK;
+fn is_hidden(card: Card) -> bool {
+    let flags = get_bits(card.value, FLAGS_BITPOS, FLAGS_BITSIZE);
+    return (flags & FLAG_HIDDEN) != 0u;
 }
 
 fn get_value(card: Card) -> u32 {
-    return (card.value & VALUE_MASK);
+    return get_bits(card.value,VALUE_BITPOS,VALUE_BITSIZE);
 }
-fn get_value_numeric(card: Card) -> u32 {
-    return (card.value & VALUE_MASK);
-}
+
+
+const MOUSE_TABLEAU_ID = 0;
+const BURN_TABLEAU_ID = 1;
+const DISCARD_PILE_ID = 2;
+
+const RESERVED_TABLEAUS = 3;
+
 
 fn get_world_position_and_size(c: Card, mouse_pos: vec2<f32>) -> vec4<f32> {
     var origin = vec2<f32>(50.0,50.0);
 
-    if (c.tableau != 0) {
-        origin += vec2<f32>(120.0*f32(c.tableau-1u),0.0);
+    let t_pos = c.tableau-RESERVED_TABLEAUS;
+    let col = t_pos / 2;
+    var is_bottom = (t_pos % 2);
+
+    if (c.tableau == 0) { //Mouse tableau
+        origin = mouse_pos;
+        is_bottom = 0;
+    }
+    else if (c.tableau == 1) { //Discard pile
+        origin = vec2<f32>(1100.0,200.0);
+        is_bottom = 0;
+    }
+    else if (c.tableau == 2) { //Burn tableau
+        origin = vec2<f32>(900.0,400.0);
+        is_bottom = 0;
     }
     else {
-        origin = mouse_pos;
+        origin += vec2<f32>(120.0*f32(col),800.0*f32(is_bottom));
     }
 
-    origin += vec2<f32>(0.0,30.0*f32(c.stack_idx));
+    if (c.tableau == 1) {
+        origin += vec2<f32>(3.0*f32(c.stack_idx) % 7.0,10.0*f32(c.stack_idx)*select(1.0,-1.0,is_bottom==1));
+    }
+    else {
+        origin += vec2<f32>(0.0,40.0*f32(c.stack_idx)*select(1.0,-1.0,is_bottom==1));
+    }
+
     
     var size = vec2<f32>(92.0,132.0);
 
@@ -83,11 +112,15 @@ fn get_depth(c: Card, max_cards: u32) -> u32 {
 
 struct HoveringBuffer {
     hovering_id: u32,
-    hovering_max_z: u32
+    pos_x: u32,
+    pos_y: u32,
+    hovering_max_z: u32,
 }
 struct AtomicHoveringBuffer {
     hovering_id: u32,
-    hovering_max_z: atomic<u32>
+    pos_x: u32,
+    pos_y: u32,
+    hovering_max_z: atomic<u32>,    
 }
 
 
@@ -96,29 +129,25 @@ struct Card {
     id: u32,
     value: u32,
     tableau: u32,
-    stack_idx: u32
+    stack_idx: u32,
+    animation_id: u32,
+    _pad: u32
 }
 
 struct CardArray {
     total: u32,
     total_workgroups: u32,
-    hovering: u32,
-    hovering_max_z: atomic<u32>,
+    _pad1: u32,
+    _pad2: atomic<u32>,
     cards: array<Card>
 }
 
 
-
-struct ReadOnlyCardArray {
-    total: u32,
-    total_workgroups: u32,
-    hovering: u32,
-    hovering_max_z: u32,
-    cards: array<Card>
+struct Animation {
+    prev_tableau: u32,
+    prev_stack_idx: u32,
+    t: f32,
+    _pad: f32
 }
 
 
-struct Tableau {
-    size: u32,
-    _pad: vec3<u32>,
-}

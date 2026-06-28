@@ -20,18 +20,21 @@ fn cs_main(@builtin(global_invocation_id) gid: vec3<u32>) {
 
     hovering_buffer.hovering_id = 0xFFFFFFFF;
     atomicStore(&hovering_buffer.hovering_max_z,0xFFFFFFFF);
+    
+
+
+    let idx = gid.x;
+
     workgroupBarrier();
 
-    if (gid.x >= card_data.total) {
+    if (idx >= card_data.total) {
         return;
     }
 
-    let c = card_data.cards[gid.x];
+    let c = card_data.cards[idx];
 
-
-    // if get_type(c) == TYPE_CARD_TABLEAU {return;}
-
-    if (c.tableau == 0u) {return;}
+    if (c.tableau == 0u //Mouse pile
+        ) {return;}
 
     let mouse = input_u.mouse_pos;
 
@@ -56,7 +59,7 @@ fn cs_main(@builtin(global_invocation_id) gid: vec3<u32>) {
 
     if (z == atomicLoad(&hovering_buffer.hovering_max_z)) {
         hovering_buffer.hovering_id = c.id;
+        hovering_buffer.pos_x = u32(origin.x + size.x);
+        hovering_buffer.pos_y = u32(origin.y + size.y*0.67);
     }
-    
-    // card_data.hovering = 2u;
 }

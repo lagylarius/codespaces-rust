@@ -23,9 +23,14 @@ const VAL_KING  = 13;
 
 const SUIT_BITSIZE: u32 = 4;
 const VALUE_BITSIZE: u32 = 4;
-const FLAGS_BITSIZE: u32 = 2;
+const FLAGS_BITSIZE: u32 = 8;
 
 const FLAG_HIDDEN:      u32 = 1u;
+const FLAG_BLOODY:      u32 = 2u;
+const FLAG_GHOST:      u32 = 3u;
+const FLAG_INVERTED:      u32 = 4u;
+const FLAG_HYPER:      u32 = 5u;
+const FLAG_METAL:      u32 = 5u;
 
 const SUIT_BITPOS: u32 = 0;
 const VALUE_BITPOS: u32 = 4;
@@ -38,9 +43,18 @@ fn get_bits(value: u32, bitpos: u32, bitsize: u32) -> u32 {
 fn get_suit(card: Card) -> u32 {
     return get_bits(card.value,SUIT_BITPOS,SUIT_BITSIZE);
 }
+fn get_flags(value: u32) -> u32 {
+    return get_bits(value, FLAGS_BITPOS, FLAGS_BITSIZE);
+}
+fn flag_mask(flag: u32) -> u32 {
+    return 1u << (flag - 1u);
+}
+fn has_flag(card: Card, flag: u32) -> bool {
+    let flags = get_flags(card.value);
+    return (flags & flag_mask(flag)) != 0u;
+}
 fn is_hidden(card: Card) -> bool {
-    let flags = get_bits(card.value, FLAGS_BITPOS, FLAGS_BITSIZE);
-    return (flags & FLAG_HIDDEN) != 0u;
+    return has_flag(card, FLAG_HIDDEN);
 }
 
 fn get_value(card: Card) -> u32 {
@@ -54,9 +68,42 @@ const DISCARD_PILE_ID = 2;
 
 const RESERVED_TABLEAUS = 3;
 
+fn zoom_point(p: vec2<f32>, center: vec2<f32>, zoom: f32) -> vec2<f32> {
+    return center + (p - center) * zoom;
+}
+fn unzoom_point(p: vec2<f32>, center: vec2<f32>, zoom: f32) -> vec2<f32> {
+    return center + (p - center) / zoom;
+}
 
-fn get_world_position_and_size(c: Card, mouse_pos: vec2<f32>) -> vec4<f32> {
-    var origin = vec2<f32>(50.0,50.0);
+fn compute_zoom_to_fit(max_cards: u32, screen_height: f32) -> f32 {
+    let required = compute_required_height(max_cards);
+    let required_zoom = (screen_height*0.66) / required;
+    let zoom = clamp(required_zoom,0.26,1.0);
+    //Snap to nice ratios
+    let steps = array<f32,10>(1.0, 0.875, 0.75, 0.667, 0.625, 0.5, 0.375, 0.333, 0.25, 0.125);
+    var best = steps[9];
+    for (var i = 0u; i < 10u; i++) {
+        if (steps[i] <= zoom) {
+            best = steps[i];
+            break;
+        }
+    }
+    return best;
+}
+
+const CARD_STACK_ORIGIN = vec2<f32>(50.0,50.0);
+const CARD_STACK_OFFSET_Y = 40.0;
+const CARD_SIZE = vec2<f32>(92.0, 132.0);
+
+fn compute_required_height(max_cards: u32) -> f32 {
+    let stack_offset = CARD_STACK_OFFSET_Y * f32(max_cards - 1u);
+    let card_height = CARD_SIZE.y;
+    let origin_y = CARD_STACK_ORIGIN.y;
+    return origin_y + stack_offset + card_height;
+}
+
+fn get_world_position_and_size(c: Card, mouse_pos: vec2<f32>,resolution:vec2<f32>) -> vec4<f32> {
+    var origin = CARD_STACK_ORIGIN;
 
     let t_pos = c.tableau-RESERVED_TABLEAUS;
     let col = t_pos / 2;
@@ -75,20 +122,17 @@ fn get_world_position_and_size(c: Card, mouse_pos: vec2<f32>) -> vec4<f32> {
         is_bottom = 0;
     }
     else {
-        origin += vec2<f32>(120.0*f32(col),800.0*f32(is_bottom));
+        origin += vec2<f32>(120.0*f32(col),(resolution.y-CARD_STACK_ORIGIN.y*2-CARD_SIZE.y)*f32(is_bottom));
     }
 
     if (c.tableau == 1) {
         origin += vec2<f32>(3.0*f32(c.stack_idx) % 7.0,10.0*f32(c.stack_idx)*select(1.0,-1.0,is_bottom==1));
     }
     else {
-        origin += vec2<f32>(0.0,40.0*f32(c.stack_idx)*select(1.0,-1.0,is_bottom==1));
+        origin += vec2<f32>(0.0,CARD_STACK_OFFSET_Y*f32(c.stack_idx)*select(1.0,-1.0,is_bottom==1));
     }
 
-    
-    var size = vec2<f32>(92.0,132.0);
-
-    return vec4<f32>(origin,size);
+    return vec4<f32>(origin,CARD_SIZE);
 }
 
 fn bit_width(x: u32) -> u32 {
@@ -108,6 +152,8 @@ fn get_depth(c: Card, max_cards: u32) -> u32 {
 
     return tableau + card_z;
 }
+
+
 
 
 struct HoveringBuffer {
@@ -137,7 +183,7 @@ struct Card {
 struct CardArray {
     total: u32,
     total_workgroups: u32,
-    _pad1: u32,
+    max_cards_on_one_tableau: u32,
     _pad2: u32,
     cards: array<Card>
 }

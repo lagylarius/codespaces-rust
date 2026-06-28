@@ -1,16 +1,13 @@
 mod card;
 mod sequence;
-use card::*;
-use egui::Panel;
-
 mod gpu;
 mod animation;
 
-
-use std::{collections::HashMap, sync::Arc};
+use card::*;
+use std::{slice::SliceIndex, sync::Arc};
 use rand::seq::SliceRandom;
 use rand::rng;
-use crate::{game::{animation::AnimationQueue, gpu::GPUContext, sequence::CardSequenceOp}, gui::PanelInfo};
+use crate::{game::{animation::AnimationQueue, card::card_kind::{CardKind, JLevel, JokerKind, ReservedVal, TableauVal}, gpu::GPUContext, sequence::{AsCardSequence, AsMutCardSequence, CardSequence, CardSequenceMut}}, gui::PanelInfo};
 
 
 
@@ -80,53 +77,35 @@ pub struct Game {
     top_tableaus: Vec<Vec<Card>>,
     bottom_tableaus: Vec<Vec<Card>>,
     reserved_tableaus: [Vec<Card>;RESERVED_TABLEAUS],
+    def_mouse_card: Card,
+    def_burn_card: Card,
+    def_null_card: Card,
     animation_queue: AnimationQueue
 }
 
 impl Game {
-    fn update(&mut self, tableau : TableauIndex) {
+    
+    fn update_at(&mut self, tableau : TableauIndex, c: usize) {
+        log_print!("{}",c);
         if self.get_tableau(tableau).is_empty() {return;}
-        if self.get_tableau(tableau).first().unwrap().kind() == CardKind::Tableau(TableauVal::Burn) {
-            let mut removed: Vec<Card> = self.get_tableau_mut(tableau).drain(1..).collect();
 
-            let count = removed.len();
+        // self.get_t_as_mut_sequence(tableau, ..).update_end();
 
-            //Burning tableau: -15p
-            //Will burn cards.
-            let mut points: i32 = -10;
-            log_print!("Burning {} cards",removed.len());
-            for c in removed.iter() {
-                log_print!("+{} points",c.val_numeric());
-                //Ace: 2x
-                points += c.val_numeric() as i32;
-            }
-
+        self.get_t_as_mut_sequence(tableau, ..).update_at(c);
+        
+        if self.get_tableau(tableau).get(c).is_some_and(|card| {card.kind() == CardKind::Tableau(TableauVal::Burn)}) {
+            let mut removed: Vec<Card> = self.get_tableau_mut(tableau).drain((c+1)..).collect();
+            let mut points: i32 = 0;
             removed.iter_mut().for_each(|c| {
-                c.hide();
+                let p = c.get_points().unwrap_or(0);
+                log_print!("+{} points",p);
+                points += p;
+                c.set_hidden(true);
             });
-            
-            self.get_tableau_mut(TableauIndex::DISCARD_PILE).extend(removed);
-
             self.points = self.points.saturating_add_signed(points);
-
-
-            match self.objective.burn(count as u32) {
-                ObjectiveStatus::Completed => {
-                },
-                ObjectiveStatus::Failed => {
-                    panic!("game over")
-                },
-                ObjectiveStatus::Ongoing => {
-
-                },
-            }
-        }
-
-        if self.get_tableau(tableau).last().unwrap().is_hidden() {
-            self.get_tableau_mut(tableau).last_mut().unwrap().unhide();
+            self.get_tableau_mut(TableauIndex::DISCARD_PILE).extend(removed);
         }
     }
-
 
     pub fn pick_card(&mut self, id: u32) {
         if id == 0xFFFFFFFF { return;}
@@ -135,15 +114,19 @@ impl Game {
             return;
         };
         if self.reserved_tableaus[MOUSE_TABLEAU_ID].is_empty() {
-            if (&self.get_tableau(pos.t)[pos.c..]).can_be_picked() {
+            if self.get_t_as_sequence(pos.t,..).is_valid_sequence_from(pos.c) &&
+                self.get_t_as_sequence(pos.t,pos.c..).can_be_placed_on(self.get_t_as_sequence(TableauIndex::MOUSE,..)) {
                 self.move_tableau_pos_onwards(pos.t, pos.c, TableauIndex::MOUSE);
-                self.update(pos.t);
+                self.update_at(pos.t,pos.c-1);
+                // self.update(pos.t);
+                // self.update_at(tableau, c);
             }
         }
         else {
-            if (&self.get_tableau(TableauIndex::MOUSE)[..]).can_be_placed_on(&self.get_tableau(pos.t)[..]) {
+            if self.get_t_as_sequence(TableauIndex::MOUSE,..).can_be_placed_on(self.get_t_as_sequence(pos.t,..)) {
                 self.move_tableau(TableauIndex::MOUSE,pos.t);
-                self.update(pos.t);
+                self.update_at(pos.t,pos.c);
+                // self.update(pos.t);
             }
         }
     }
@@ -156,17 +139,36 @@ impl Game {
         for i in 0..4 {
             self.add_c(Card::new_tableau(TableauVal::Shop),TableauIndex::bottom(i ));
             // self.add_c(Card::new_card(Suit::Joker, value))
-            self.add_c(Card::new_common(CardKind::Joker(JokerVal::Low)),TableauIndex::bottom(i ));
+            // if i < 2 {
+
+            // self.add_c(Card::new_common(CardKind::Joker(JokerKind::Joker(JLevel::High))),TableauIndex::bottom(i ));
+            // }
+            // else {
+            // self.add_c(Card::new_common(CardKind::Joker(JokerKind::Joker(JLevel::Low))),TableauIndex::bottom(i ));
+            // }
         }
+        let mut c = Card::new_common(CardKind::Joker(JokerKind::Joker(JLevel::High)));
+        c.set_ghost(true);
+        self.add_c(c,TableauIndex::bottom(0 ));
+        let mut c = Card::new_common(CardKind::Joker(JokerKind::Joker(JLevel::Low)));
+        c.set_metal(true);
+        self.add_c(c,TableauIndex::bottom(1 ));
+        self.add_c(Card::new_common(CardKind::Joker(JokerKind::Mimic(JLevel::High))),TableauIndex::bottom(2 ));
+        self.add_c(Card::new_common(CardKind::Joker(JokerKind::Mimic(JLevel::Low))),TableauIndex::bottom(3));
+
         let mut deck: Vec<Card> = Vec::new();
 
-        for suit in STANDARD_SUITS {
-            for val in STANDARD_VALS {
-                let mut c = Card::new_card(suit, val);
-                c.hide();
-                deck.push(c);
+        for _ in 0..1 {
+            for suit in STANDARD_SUITS {
+                for val in STANDARD_VALS {
+                    let mut c = Card::new_card(suit, val);
+                    c.set_hidden(true);
+                    deck.push(c);
+                }
             }
         }
+
+
 
         deck.shuffle(&mut rng());
 
@@ -249,6 +251,34 @@ impl Game {
         }
     }
 
+    // fn get_t_as_sequence<R: RangeBounds<usize> + std::slice::SliceIndex<[Card]>>(&self, ti: TableauIndex, range: R) -> CardSequence {
+    //     let t: &[Card] = &self.get_tableau(ti)[range];
+    //     t.as_sequence(self.default_card)
+    // }
+
+    fn get_t_as_sequence<'s,R>(&'s self, ti: TableauIndex, range: R) -> CardSequence<'s>
+        where R: SliceIndex<[Card], Output = [Card]>,
+    {
+        let slice: &[Card] = &self.get_tableau(ti)[range];
+        let default = match ti {
+            TableauIndex::MOUSE => self.def_mouse_card,
+            TableauIndex::BURN_TABLEAU => self.def_burn_card,
+            _ => self.def_null_card,
+        };
+        slice.as_sequence(default)
+    }
+    fn get_t_as_mut_sequence<'s,R>(&'s mut self, ti: TableauIndex, range: R) -> CardSequenceMut<'s>
+        where R: SliceIndex<[Card], Output = [Card]>,
+    {
+        let default = match ti {
+            TableauIndex::MOUSE => self.def_mouse_card,
+            TableauIndex::BURN_TABLEAU => self.def_burn_card,
+            _ => self.def_null_card,
+        };
+        let slice: &mut [Card] = &mut self.get_tableau_mut(ti)[range];
+        slice.as_mut_sequence(default)
+    }
+
     fn get_tableau_mut(&mut self, ti: TableauIndex) -> &mut Vec<Card> {
         match ti.t {
             TableauIndexType::Reserved => &mut self.reserved_tableaus[ti.index],
@@ -294,19 +324,32 @@ impl Game {
 
 
         for (i,t) in (0..6).enumerate() {
+            let prev_size = self.get_tableau(TableauIndex::top(t)).len();
             let cmax = base + if i < extra { 1 } else { 0 };
             for c in 0..cmax {
                 let mut card = deck.pop().unwrap();
                 if t < c {
-                    card.unhide();
+                    card.set_hidden(false);
                 }
                 else {
-                    card.hide();
+                    card.set_hidden(true);
                 }
                 self.add_c(card, TableauIndex::top(t));
             }
 
-            self.update(TableauIndex::top(t));
+            for c in prev_size..prev_size+cmax {
+                self.update_at(TableauIndex::top(t),c);
+            }
+
+            // for c in 1..cmax+1 {
+            //     if t+2 < c {
+            //         self.get_tableau_mut(TableauIndex::top(t))[c].set_hidden(false);
+            //     }
+            //     else {
+            //         self.get_tableau_mut(TableauIndex::top(t))[c].set_hidden(true);
+            //     }
+            // }
+
         }
     }
 
@@ -318,7 +361,10 @@ impl Game {
             top_tableaus: vec![vec![]; RESERVED_TABLEAUS],
             bottom_tableaus: vec![vec![];3],
             reserved_tableaus: [vec![],vec![],vec![]],
-            animation_queue: AnimationQueue::new()
+            animation_queue: AnimationQueue::new(),
+            def_mouse_card: Card::new_common(CardKind::_Reserved(ReservedVal::MouseCard)),
+            def_burn_card: Card::new_common(CardKind::_Reserved(ReservedVal::BurnCard)),
+            def_null_card: Card::new_common(CardKind::_Reserved(ReservedVal::NullCard)),
         };
         s.initialize();
         s
@@ -332,15 +378,21 @@ impl Game {
         let mut gpu_context = GPUContext::new();
 
         for (tableau_idx, tableau) in self.reserved_tableaus.iter().enumerate() {
-            gpu_context.push_cards(tableau, TableauIndex::reserved(tableau_idx).tableau_index() as u32,  &self.animation_queue);
+            let t = TableauIndex::reserved(tableau_idx);
+            if t == TableauIndex::DISCARD_PILE {
+                gpu_context.push_cards(tableau, TableauIndex::reserved(tableau_idx).tableau_index() as u32,  &self.animation_queue);
+            }
+            else {
+                gpu_context.push_cards_zoom_calc(tableau, TableauIndex::reserved(tableau_idx).tableau_index() as u32,  &self.animation_queue);
+            }
         }
 
         for (tableau_idx, tableau) in self.top_tableaus.iter().enumerate() {
-            gpu_context.push_cards(tableau, TableauIndex::top(tableau_idx).tableau_index() as u32,  &self.animation_queue);
+            gpu_context.push_cards_zoom_calc(tableau, TableauIndex::top(tableau_idx).tableau_index() as u32,  &self.animation_queue);
         }
 
         for (tableau_idx, tableau) in self.bottom_tableaus.iter().enumerate() {
-            gpu_context.push_cards(tableau, TableauIndex::bottom(tableau_idx).tableau_index() as u32,  &self.animation_queue);
+            gpu_context.push_cards_zoom_calc(tableau, TableauIndex::bottom(tableau_idx).tableau_index() as u32,  &self.animation_queue);
         }
 
         gpu_context.flush_to_gpu(queue, buffer, animation_buffer);

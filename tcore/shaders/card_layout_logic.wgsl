@@ -12,8 +12,9 @@ struct InputUniforms {
 
 
 @group(0) @binding(0) var<storage,read_write> card_data: CardArray;
-@group(0) @binding(1) var<uniform> input_u: InputUniforms;
-@group(0) @binding(2) var<storage,read_write> hovering_buffer: AtomicHoveringBuffer;
+@group(0) @binding(1) var<uniform> render_u: RenderUniforms;
+@group(0) @binding(2) var<uniform> input_u: InputUniforms;
+@group(0) @binding(3) var<storage,read_write> hovering_buffer: AtomicHoveringBuffer;
 
 @compute @workgroup_size(256)
 fn cs_main(@builtin(global_invocation_id) gid: vec3<u32>) {
@@ -36,9 +37,10 @@ fn cs_main(@builtin(global_invocation_id) gid: vec3<u32>) {
     if (c.tableau == 0u //Mouse pile
         ) {return;}
 
-    let mouse = input_u.mouse_pos;
+    let zoom = compute_zoom_to_fit(card_data.max_cards_on_one_tableau, render_u.resolution.y);
+    let mouse = unzoom_point(input_u.mouse_pos, vec2<f32>(0.0), zoom);
 
-    let aabb = get_world_position_and_size(c, input_u.mouse_pos);
+    let aabb = get_world_position_and_size(c, mouse,render_u.resolution / zoom);
 
     let origin = aabb.xy;
     let size = aabb.zw;
@@ -59,7 +61,8 @@ fn cs_main(@builtin(global_invocation_id) gid: vec3<u32>) {
 
     if (z == atomicLoad(&hovering_buffer.hovering_max_z)) {
         hovering_buffer.hovering_id = c.id;
-        hovering_buffer.pos_x = u32(origin.x + size.x);
-        hovering_buffer.pos_y = u32(origin.y + size.y*0.67);
+        let info_pos = zoom_point(origin + vec2<f32>(size.x, size.y * 0.67), vec2<f32>(0.0), zoom);
+        hovering_buffer.pos_x = u32(info_pos.x);
+        hovering_buffer.pos_y = u32(info_pos.y);
     }
 }

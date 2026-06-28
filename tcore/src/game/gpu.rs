@@ -6,7 +6,8 @@ pub struct GPUContext {
     flat: Vec<GpuCard>,
     total_cards: u32,
     flat_animations: Vec<GpuAnimation>,
-    total_animations: u32
+    total_animations: u32,
+    max_tableau_size_top: u32,
 }
 
 impl GPUContext {
@@ -16,16 +17,19 @@ impl GPUContext {
             total_cards: 0,
             flat: Vec::new(),
             flat_animations: Vec::new(),
+            max_tableau_size_top: 0
         }
     }
     pub fn flush_to_gpu(&self, queue: &Arc<wgpu::Queue>, buffer: &wgpu::Buffer, animation_buffer: &wgpu::Buffer) {
         queue.write_buffer(buffer, 0, bytemuck::bytes_of(&self.total_cards));
         queue.write_buffer(buffer, 4, bytemuck::bytes_of(&self.total_cards.div_ceil(256)));
+        queue.write_buffer(buffer, 8, bytemuck::bytes_of(&self.max_tableau_size_top));
         queue.write_buffer(buffer, 16, bytemuck::cast_slice(&self.flat));
 
         queue.write_buffer(animation_buffer, 0, bytemuck::cast_slice(&self.flat_animations));
     }
-    pub fn push_cards(&mut self, cards: &Vec<Card>, tableau_idx: u32,animation_queue: &AnimationQueue) {
+
+    fn _push_cards(&mut self, cards: &Vec<Card>, tableau_idx: u32,animation_queue: &AnimationQueue) {
         self.total_cards += cards.len() as u32;
         for (stack_idx, card) in cards.iter().enumerate() {
             let animation_id = if let Some(animation) = animation_queue.animation_for_card(card) {
@@ -50,6 +54,13 @@ impl GPUContext {
                 _pad: 0,
             });
         }
+    }
+    pub fn push_cards(&mut self, cards: &Vec<Card>, tableau_idx: u32,animation_queue: &AnimationQueue) {
+        self._push_cards(cards, tableau_idx, animation_queue);
+    }
+    pub fn push_cards_zoom_calc(&mut self, cards: &Vec<Card>, tableau_idx: u32,animation_queue: &AnimationQueue) {
+        self.max_tableau_size_top = self.max_tableau_size_top.max(cards.len() as u32);
+        self._push_cards(cards, tableau_idx, animation_queue);
     }
 }
 

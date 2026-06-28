@@ -238,6 +238,16 @@ pub async fn run() {
                 binding: 2,
                 visibility: wgpu::ShaderStages::COMPUTE,
                 ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 3,
+                visibility: wgpu::ShaderStages::COMPUTE,
+                ty: wgpu::BindingType::Buffer {
                     ty: wgpu::BufferBindingType::Storage { read_only: false },
                     has_dynamic_offset: false,
                     min_binding_size: None,
@@ -328,7 +338,7 @@ pub async fn run() {
                     let depth_texture = state.depth_view();
                     let depth = Depth {depth_view: depth_texture};
 
-                    card_layout_logic.do_pass(&[&card_data_buffer,&input_uniform_buffer,&hovering_buffer]);
+                    card_layout_logic.do_pass(&[&card_data_buffer,&render_uniform_buffer,&input_uniform_buffer,&hovering_buffer]);
                     render_background.do_pass(&canvas_texture, &[&render_uniform_buffer],NoDepth);
                     render_cards.do_pass(&canvas_texture, 
                         &[
