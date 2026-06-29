@@ -113,8 +113,7 @@ impl<'a> CardSequence<'a> {
         true
     }
     pub fn is_valid_sequence_from(&self, from: usize) -> bool {
-        log_print!("{}",self.sequence.as_slice().flat_len());
-        if self.sequence.as_slice().flat_len() == 1 {return true;}
+        log_print!("Seq length: {}",self.sequence.as_slice().flat_len());
         assert!(from < self.sequence.as_slice().flat_len(), "from index {} out of bounds (len {})", from, self.sequence.as_slice().flat_len());
         for (i,card) in self.sequence.as_slice().flat_enumerate().skip(from) {
             if !card.is_valid(self, i) {

@@ -30,21 +30,6 @@ pub const STANDARD_VALS: [StandardVal; 13] = [
     StandardVal::Face(FaceVal::King),
 ];
 
-// macro_rules! flag_get_set {
-//     ($name:ident) => {
-//         paste::paste! {
-//             pub fn $name(&self) -> bool {
-//                 self.flags().$name()
-//             }
-
-//             pub fn [<set_ $name>](&mut self, v: bool) {
-//                 let mut flags = self.flags();
-//                 flags.[<set_ $name>](v);
-//                 self.set_flags(flags);
-//             }
-//         }
-//     };
-// }
 macro_rules! flag_get_set {
     ($name:ident, $setter:ident) => {
         pub fn $name(&self) -> bool {

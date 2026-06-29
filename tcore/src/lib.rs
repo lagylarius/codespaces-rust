@@ -125,6 +125,7 @@ pub async fn run() {
         ("card_vertex", "render_card.wgsl"),
         ("card_fragment", "render_card.wgsl"),
         ("card_layout_logic", "card_layout_logic.wgsl"),
+        ("card_layout_logic_end", "card_layout_logic_end.wgsl"),
     ]
     .into_iter()
     .map(|(key, file)| (key, format!("{shader_dir}/{file}")))
@@ -258,6 +259,52 @@ pub async fn run() {
         ,
         shaders.get("card_layout_logic").unwrap());
 
+    let card_layout_logic_end = passes::ComputePassCommon::<Dispatch>::new(state.device.clone(),state.queue.clone(),
+        &[
+            wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::COMPUTE,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Storage { read_only: false },
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 1,
+                visibility: wgpu::ShaderStages::COMPUTE,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 2,
+                visibility: wgpu::ShaderStages::COMPUTE,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 3,
+                visibility: wgpu::ShaderStages::COMPUTE,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Storage { read_only: false },
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
+        ]
+        ,
+        shaders.get("card_layout_logic_end").unwrap());
+
     //Egui
 
     let mut mousepos: (f32,f32) = (0.0,0.0);
@@ -339,6 +386,7 @@ pub async fn run() {
                     let depth = Depth {depth_view: depth_texture};
 
                     card_layout_logic.do_pass(&[&card_data_buffer,&render_uniform_buffer,&input_uniform_buffer,&hovering_buffer]);
+                    card_layout_logic_end.do_pass(&[&card_data_buffer,&render_uniform_buffer,&input_uniform_buffer,&hovering_buffer]);
                     render_background.do_pass(&canvas_texture, &[&render_uniform_buffer],NoDepth);
                     render_cards.do_pass(&canvas_texture, 
                         &[

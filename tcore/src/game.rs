@@ -114,10 +114,10 @@ impl Game {
             return;
         };
         if self.reserved_tableaus[MOUSE_TABLEAU_ID].is_empty() {
-            if self.get_t_as_sequence(pos.t,..).is_valid_sequence_from(pos.c) &&
-                self.get_t_as_sequence(pos.t,pos.c..).can_be_placed_on(self.get_t_as_sequence(TableauIndex::MOUSE,..)) {
+            log_print!("????");
+            if self.get_t_as_sequence(pos.t,pos.c..).can_be_placed_on(self.get_t_as_sequence(TableauIndex::MOUSE,..)) {
                 self.move_tableau_pos_onwards(pos.t, pos.c, TableauIndex::MOUSE);
-                self.update_at(pos.t,pos.c-1);
+                self.update_at(pos.t,pos.c.wrapping_sub(1));
                 // self.update(pos.t);
                 // self.update_at(tableau, c);
             }
